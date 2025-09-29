@@ -2,6 +2,8 @@
 
 > Go templates for new projects
 
+**Note**: This is a fork of [`go-template`](https://github.com/RedeployAB/go-template).
+
 This repository is a template to make use of when creating new projects in
 Go. It contains scripts, Dockerfile(s) and workflows.
 
@@ -17,14 +19,17 @@ Four templates are provided:
 To create a new project based on one of the templates:
 
 1. Install `gonew` (if it is not already installed):
+
 ```sh
 go install golang.org/x/tools/cmd/gonew@latest
 ```
+
 2. Download the template and create the new project:
+
 ```sh
 # Assuming the project will be hosted in GitHub.
 # If not replace github.com/<owner>/<repo> with the correct path.
-gonew github.com/RedeployAB/go-template/templates/<name> github.com/<owner>/<repo>
+gonew github.com/KarlGW/go-template/templates/<name> github.com/<owner>/<repo>
 ```
 
 ## Example
@@ -33,7 +38,7 @@ To create a new project based on the [http-server](templates/http-server/) templ
 to a GitHub repository with the user/organization name `YourUser` and the project/module name `myproject`
 
 ```sh
-gonew github.com/RedeployAB/go-template/templates/http-server github.com/YourUser/myproject
+gonew github.com/KarlGW/go-template/templates/http-server github.com/YourUser/myproject
 ```
 
 **Note**: The directory and files will be created in the current working directory.

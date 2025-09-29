@@ -1,4 +1,4 @@
-module github.com/RedeployAB/go-template/templates/service
+module github.com/KarlGW/go-template/templates/service
 
 go 1.22.2
 
