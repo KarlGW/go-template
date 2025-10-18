@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/RedeployAB/go-template/templates/http-server/server"
+	"github.com/KarlGW/go-template/templates/http-server/server"
 )
 
 func main() {

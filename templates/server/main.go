@@ -1,7 +1,7 @@
 package main
 
 import (
-	server "github.com/RedeployAB/go-template/templates/server/server"
+	server "github.com/KarlGW/go-template/templates/server/server"
 )
 
 func main() {

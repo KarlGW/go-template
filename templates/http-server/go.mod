@@ -1,4 +1,4 @@
-module github.com/RedeployAB/go-template/templates/http-server
+module github.com/KarlGW/go-template/templates/http-server
 
 go 1.22.2
 
