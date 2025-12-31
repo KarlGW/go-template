@@ -112,11 +112,17 @@ func (s *server) Start(ctx context.Context) error {
 		}
 	}()
 
+	select {
+	case err := <-s.errCh:
+		return err
+	case <-time.After(100 * time.Millisecond):
+		s.log.Info("Server started.", "address", s.httpServer.Addr)
+	}
+
 	go func() {
 		s.stop()
 	}()
 
-	s.log.Info("Server started.", "address", s.httpServer.Addr)
 	for {
 		select {
 		case err := <-s.errCh:
