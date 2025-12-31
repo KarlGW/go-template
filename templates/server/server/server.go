@@ -1,21 +1,28 @@
 package server
 
 import (
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
+var signals = [3]os.Signal{
+	os.Interrupt,
+	syscall.SIGINT,
+	syscall.SIGTERM,
+}
+
 // server ...
 type server struct {
-	log    logger
+	log    *slog.Logger
 	stopCh chan os.Signal
 	errCh  chan error
 }
 
 // Options holds the configuration for the server.
 type Options struct {
-	Logger logger
+	Logger *slog.Logger
 }
 
 // Option is a function that configures the server.
@@ -32,7 +39,7 @@ func New(options ...Option) *server {
 	}
 
 	if s.log == nil {
-		s.log = NewLogger()
+		s.log = defaultLogger()
 	}
 
 	return s
@@ -66,8 +73,10 @@ func (s server) Start() error {
 // stop the server.
 func (s server) stop() {
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(stop, signals[:]...)
 	sig := <-stop
+	// Reset signals so that a second interrupt will force shutdown.
+	signal.Reset(signals[:]...)
 
 	// Add server shutdown logic here.
 
@@ -81,4 +90,8 @@ func WithOptions(options Options) Option {
 			s.log = options.Logger
 		}
 	}
+}
+
+func defaultLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
 }
