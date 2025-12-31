@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,14 +22,20 @@ const (
 	defaultIdleTimeout  = 30 * time.Second
 )
 
+var signals = [3]os.Signal{
+	os.Interrupt,
+	syscall.SIGINT,
+	syscall.SIGTERM,
+}
+
 // server holds an http.Server, a router and it's configured options.
 type server struct {
 	httpServer *http.Server
 	router     *router
-	tls        TLSConfig
-	log        logger
+	log        *slog.Logger
 	stopCh     chan os.Signal
 	errCh      chan error
+	tls        TLSConfig
 }
 
 // TLSConfig holds the configuration for the server's TLS settings.
@@ -45,7 +53,7 @@ func (c TLSConfig) isEmpty() bool {
 type Options struct {
 	Router       *router
 	TLSConfig    TLSConfig
-	Logger       logger
+	Logger       *slog.Logger
 	Host         string
 	Port         int
 	ReadTimeout  time.Duration
@@ -75,7 +83,7 @@ func New(options ...Option) *server {
 		s.router = NewRouter()
 	}
 	if s.log == nil {
-		s.log = NewLogger()
+		s.log = defaultLogger()
 	}
 	if len(s.httpServer.Addr) == 0 {
 		s.httpServer.Addr = defaultHost + ":" + defaultPort
@@ -88,7 +96,14 @@ func New(options ...Option) *server {
 }
 
 // Start the server.
-func (s server) Start() error {
+//
+// The provided context acts as parent context for
+// all server actions.
+func (s *server) Start(ctx context.Context) error {
+	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
+		return ctx
+	}
+
 	s.routes()
 
 	go func() {
@@ -128,8 +143,10 @@ func (s *server) listenAndServe() error {
 // stop the server.
 func (s server) stop() {
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(stop, signals[:]...)
 	sig := <-stop
+	// Reset signals so that a second interrupt will force shutdown.
+	signal.Reset(signals[:]...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -185,4 +202,8 @@ func newTLSConfig() *tls.Config {
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
+}
+
+func defaultLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
 }
