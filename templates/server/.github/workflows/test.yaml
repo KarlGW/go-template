@@ -1,11 +1,6 @@
 name: Test and vulnerability scan
 on:
   workflow_call:
-    inputs:
-      go-version:
-        type: string
-        required: false
-        default: '1.25'
 
 jobs:
   test:
@@ -17,7 +12,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v6
       with:
-        go-version: ${{ inputs.go-version }}
+        go-version-file: 'go.mod'
 
     - name: Download dependencies
       run: |
