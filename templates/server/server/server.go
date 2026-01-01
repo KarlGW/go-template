@@ -7,26 +7,12 @@ import (
 	"syscall"
 )
 
-var signals = [3]os.Signal{
-	os.Interrupt,
-	syscall.SIGINT,
-	syscall.SIGTERM,
-}
-
 // server ...
 type server struct {
 	log    *slog.Logger
 	stopCh chan os.Signal
 	errCh  chan error
 }
-
-// Options holds the configuration for the server.
-type Options struct {
-	Logger *slog.Logger
-}
-
-// Option is a function that configures the server.
-type Option func(*server)
 
 // New returns a new server.
 func New(options ...Option) *server {
@@ -72,6 +58,12 @@ func (s server) Start() error {
 
 // stop the server.
 func (s server) stop() {
+	signals := [3]os.Signal{
+		os.Interrupt,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, signals[:]...)
 	sig := <-stop
@@ -81,15 +73,6 @@ func (s server) stop() {
 	// Add server shutdown logic here.
 
 	s.stopCh <- sig
-}
-
-// WithOptions configures the server with the given Options.
-func WithOptions(options Options) Option {
-	return func(s *server) {
-		if options.Logger != nil {
-			s.log = options.Logger
-		}
-	}
 }
 
 func defaultLogger() *slog.Logger {

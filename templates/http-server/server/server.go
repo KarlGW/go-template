@@ -129,14 +129,13 @@ func (s *server) listenAndServe() error {
 
 // stop the server.
 func (s server) stop() {
-	stop := make(chan os.Signal, 1)
-
 	signals := [3]os.Signal{
 		os.Interrupt,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 	}
 
+	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, signals[:]...)
 	sig := <-stop
 	// Reset signals so that a second interrupt will force shutdown.
