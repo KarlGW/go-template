@@ -32,8 +32,9 @@ func TestNew(t *testing.T) {
 					WriteTimeout: defaultWriteTimeout,
 					IdleTimeout:  defaultIdleTimeout,
 				},
-				router: &router{ServeMux: http.NewServeMux()},
-				log:    defaultLogger(),
+				router:          &router{ServeMux: http.NewServeMux()},
+				log:             defaultLogger(),
+				shutdownTimeout: defaultShutdownTimeout,
 			},
 		},
 		{
@@ -57,8 +58,9 @@ func TestNew(t *testing.T) {
 					WriteTimeout: 10 * time.Second,
 					IdleTimeout:  15 * time.Second,
 				},
-				router: &router{ServeMux: http.NewServeMux()},
-				log:    defaultLogger(),
+				router:          &router{ServeMux: http.NewServeMux()},
+				log:             defaultLogger(),
+				shutdownTimeout: defaultShutdownTimeout,
 			},
 		},
 	}
@@ -89,7 +91,7 @@ func TestServer_Start(t *testing.T) {
 			errCh:  make(chan error),
 		}
 		go func() {
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(time.Millisecond * 200)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
