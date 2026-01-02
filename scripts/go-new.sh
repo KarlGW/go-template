@@ -4,24 +4,10 @@ go-new() {
   local type=$1
   local dst=$2
 
-  case $type in
-  "base")
-    src+="$type"
-    ;;
-  "http-server")
-    src+="$type"
-    ;;
-  "server")
-    src+="$type"
-    ;;
-  "service")
-    src+="$type"
-    ;;
-  *)
+  if [[ "$type" != "base" ]] && [[ "$type" != "http-server" ]] && [[ "$type" != "server" ]] && [[ "$type" != "service" ]]; then
     echo "Type $type is not supported."
     exit 1
-    ;;
-  esac
+  fi
 
   if [ -z "$dst" ]; then
     echo "Destination cannot be empty."
