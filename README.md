@@ -51,5 +51,5 @@ import paths
 to match the new module name (project).
 
 As a convenience a [script](./scripts/go-new.sh) (containing a function) that
-can be but in your shell profile, or sourced into a current
+can be put in your shell profile, or sourced into a current
 session, is provided with the project.
