@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -33,11 +34,11 @@ func (w *loggingResponseWriter) Write(b []byte) (int, error) {
 }
 
 // requestLogger is a middleware that logs the incoming request.
-func requestLogger(log logger, next http.Handler) http.Handler {
+func requestLogger(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lw := &loggingResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(lw, r)
-		log.Info("Request received.", "status", lw.status, "path", r.URL.Path, "method", r.Method, "remoteIp", resolveIP(r))
+		log.Info("Request received.", "status", lw.status, "method", r.Method, "path", r.URL.Path, "remoteIP", resolveIP(r))
 	})
 }
 
@@ -46,7 +47,7 @@ func requestLogger(log logger, next http.Handler) http.Handler {
 func resolveIP(r *http.Request) string {
 	var addr string
 	if f := r.Header.Get("Forwarded"); f != "" {
-		for _, segment := range strings.Split(f, ",") {
+		for segment := range strings.SplitSeq(f, ",") {
 			addr = strings.TrimPrefix(segment, "for=")
 			break
 		}

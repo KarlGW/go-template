@@ -1,5 +1,5 @@
-# golang:1.22.2-alpine3.19 SHA1 digest.
-FROM golang@sha256:cdc86d9f363e8786845bea2040312b4efa321b828acdeb26f393faa864d887b0 as builder
+# golang:1.25.5-alpine3.23 SHA1 digest.
+FROM golang@sha256:ac09a5f469f307e5da71e766b0bd59c9c49ea460a528cc3e6686513d64a6f1fb as builder
 
 ARG BIN
 
@@ -9,13 +9,13 @@ ENV USER=${BIN}
 ENV UID=10001
 
 RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nohome" \
-    --no-create-home \
-    --shell "/sbin/nologin" \
-    --uid "${UID}" \
-    "${USER}"
+  --disabled-password \
+  --gecos "" \
+  --home "/nohome" \
+  --no-create-home \
+  --shell "/sbin/nologin" \
+  --uid "${UID}" \
+  "${USER}"
 
 
 FROM scratch

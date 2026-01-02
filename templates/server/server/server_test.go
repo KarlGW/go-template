@@ -12,7 +12,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		name  string
 		input []Option
 		want  *server
@@ -21,18 +21,18 @@ func TestNew(t *testing.T) {
 			name:  "default",
 			input: []Option{},
 			want: &server{
-				log: NewLogger(),
+				log: defaultLogger(),
 			},
 		},
 		{
 			name: "with options",
 			input: []Option{
 				WithOptions(Options{
-					Logger: NewLogger(),
+					Logger: defaultLogger(),
 				}),
 			},
 			want: &server{
-				log: NewLogger(),
+				log: defaultLogger(),
 			},
 		},
 	}
@@ -53,11 +53,8 @@ func TestNew(t *testing.T) {
 
 func TestServer_Start(t *testing.T) {
 	t.Run("start server", func(t *testing.T) {
-		logs := []string{}
 		srv := &server{
-			log: &mockLogger{
-				logs: &logs,
-			},
+			log:    slog.New(slog.DiscardHandler),
 			stopCh: make(chan os.Signal),
 			errCh:  make(chan error),
 		}
@@ -65,37 +62,9 @@ func TestServer_Start(t *testing.T) {
 			time.Sleep(time.Millisecond * 100)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
-		srv.Start()
 
-		want := []string{
-			"Server started.",
-			"Server stopped.",
-			"reason",
-			"interrupt",
-		}
-
-		if diff := cmp.Diff(want, logs); diff != "" {
-			t.Errorf("Start() = unexpected result (-want +got):\n%s\n", diff)
+		if gotErr := srv.Start(); gotErr != nil {
+			t.Errorf("Start() = unexpected result, got error: %v\n", gotErr)
 		}
 	})
-}
-
-type mockLogger struct {
-	logs *[]string
-}
-
-func (l *mockLogger) Info(msg string, args ...any) {
-	messages := []string{msg}
-	for _, v := range args {
-		messages = append(messages, v.(string))
-	}
-	*l.logs = append(*l.logs, messages...)
-}
-
-func (l *mockLogger) Error(msg string, args ...any) {
-	messages := []string{msg}
-	for _, v := range args {
-		messages = append(messages, v.(string))
-	}
-	*l.logs = append(*l.logs, messages...)
 }

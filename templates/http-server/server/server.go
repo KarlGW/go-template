@@ -3,31 +3,34 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 )
 
 // Defaults for server configuration.
 const (
-	defaultHost         = "0.0.0.0"
-	defaultPort         = "8080"
-	defaultReadTimeout  = 15 * time.Second
-	defaultWriteTimeout = 15 * time.Second
-	defaultIdleTimeout  = 30 * time.Second
+	defaultHost            = "0.0.0.0"
+	defaultPort            = "8080"
+	defaultReadTimeout     = 15 * time.Second
+	defaultWriteTimeout    = 15 * time.Second
+	defaultIdleTimeout     = 30 * time.Second
+	defaultShutdownTimeout = 15 * time.Second
 )
 
 // server holds an http.Server, a router and it's configured options.
 type server struct {
-	httpServer *http.Server
-	router     *router
-	tls        TLSConfig
-	log        logger
-	stopCh     chan os.Signal
-	errCh      chan error
+	httpServer      *http.Server
+	router          *router
+	log             *slog.Logger
+	stopCh          chan os.Signal
+	errCh           chan error
+	tls             TLSConfig
+	shutdownTimeout time.Duration
 }
 
 // TLSConfig holds the configuration for the server's TLS settings.
@@ -41,21 +44,6 @@ func (c TLSConfig) isEmpty() bool {
 	return len(c.Certificate) == 0 && len(c.Key) == 0
 }
 
-// Options holds the configuration for the server.
-type Options struct {
-	Router       *router
-	TLSConfig    TLSConfig
-	Logger       logger
-	Host         string
-	Port         int
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
-}
-
-// Option is a function that configures the server.
-type Option func(*server)
-
 // New returns a new server.
 func New(options ...Option) *server {
 	s := &server{
@@ -64,8 +52,9 @@ func New(options ...Option) *server {
 			WriteTimeout: defaultWriteTimeout,
 			IdleTimeout:  defaultIdleTimeout,
 		},
-		stopCh: make(chan os.Signal),
-		errCh:  make(chan error),
+		stopCh:          make(chan os.Signal),
+		errCh:           make(chan error),
+		shutdownTimeout: defaultShutdownTimeout,
 	}
 	for _, option := range options {
 		option(s)
@@ -75,7 +64,7 @@ func New(options ...Option) *server {
 		s.router = NewRouter()
 	}
 	if s.log == nil {
-		s.log = NewLogger()
+		s.log = defaultLogger()
 	}
 	if len(s.httpServer.Addr) == 0 {
 		s.httpServer.Addr = defaultHost + ":" + defaultPort
@@ -88,7 +77,14 @@ func New(options ...Option) *server {
 }
 
 // Start the server.
-func (s server) Start() error {
+//
+// The provided context acts as parent context for
+// all server actions.
+func (s *server) Start(ctx context.Context) error {
+	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
+		return ctx
+	}
+
 	s.routes()
 
 	go func() {
@@ -97,11 +93,17 @@ func (s server) Start() error {
 		}
 	}()
 
+	select {
+	case err := <-s.errCh:
+		return err
+	case <-time.After(100 * time.Millisecond):
+		s.log.Info("Server started.", "address", s.httpServer.Addr)
+	}
+
 	go func() {
 		s.stop()
 	}()
 
-	s.log.Info("Server started.", "address", s.httpServer.Addr)
 	for {
 		select {
 		case err := <-s.errCh:
@@ -127,11 +129,19 @@ func (s *server) listenAndServe() error {
 
 // stop the server.
 func (s server) stop() {
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-stop
+	signals := [3]os.Signal{
+		os.Interrupt,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, signals[:]...)
+	sig := <-stop
+	// Reset signals so that a second interrupt will force shutdown.
+	signal.Reset(signals[:]...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 	defer cancel()
 
 	s.httpServer.SetKeepAlivesEnabled(false)
@@ -140,34 +150,6 @@ func (s server) stop() {
 	}
 
 	s.stopCh <- sig
-}
-
-// WithOptions configures the server with the given Options.
-func WithOptions(options Options) Option {
-	return func(s *server) {
-		if options.Router != nil {
-			s.router = options.Router
-			s.httpServer.Handler = s.router
-		}
-		if !options.TLSConfig.isEmpty() {
-			s.tls = options.TLSConfig
-		}
-		if options.Logger != nil {
-			s.log = options.Logger
-		}
-		if len(options.Host) > 0 || options.Port > 0 {
-			s.httpServer.Addr = options.Host + ":" + strconv.Itoa(options.Port)
-		}
-		if options.ReadTimeout > 0 {
-			s.httpServer.ReadTimeout = options.ReadTimeout
-		}
-		if options.WriteTimeout > 0 {
-			s.httpServer.WriteTimeout = options.WriteTimeout
-		}
-		if options.IdleTimeout > 0 {
-			s.httpServer.IdleTimeout = options.IdleTimeout
-		}
-	}
 }
 
 // newTLSConfig returns a new tls.Config.
@@ -185,4 +167,8 @@ func newTLSConfig() *tls.Config {
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
+}
+
+func defaultLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
 }

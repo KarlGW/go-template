@@ -1,6 +1,7 @@
 package service
 
 import (
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -8,18 +9,10 @@ import (
 
 // service ...
 type service struct {
-	log    logger
+	log    *slog.Logger
 	stopCh chan os.Signal
 	errCh  chan error
 }
-
-// Options holds the configuration for the service.
-type Options struct {
-	Logger logger
-}
-
-// Option is a function that configures the service.
-type Option func(*service)
 
 // New returns a new service.
 func New(options ...Option) *service {
@@ -32,7 +25,7 @@ func New(options ...Option) *service {
 	}
 
 	if s.log == nil {
-		s.log = NewLogger()
+		s.log = defaultLogger()
 	}
 
 	return s
@@ -65,20 +58,23 @@ func (s service) Start() error {
 
 // stop the service.
 func (s service) stop() {
+	signals := [3]os.Signal{
+		os.Interrupt,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	}
+
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(stop, signals[:]...)
 	sig := <-stop
+	// Reset signals so that a second interrupt will force shutdown.
+	signal.Reset(signals[:]...)
 
 	// Add service shutdown logic here.
 
 	s.stopCh <- sig
 }
 
-// WithOptions configures the service with the given Options.
-func WithOptions(options Options) Option {
-	return func(s *service) {
-		if options.Logger != nil {
-			s.log = options.Logger
-		}
-	}
+func defaultLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
 }

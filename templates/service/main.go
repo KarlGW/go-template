@@ -1,17 +1,30 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+
 	"github.com/KarlGW/go-template/templates/service/service"
 )
 
 func main() {
-	log := service.NewLogger()
+	ctx := context.Background()
+	if err := run(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running application: %v", err)
+	}
+}
 
-	svc := service.New(service.WithOptions(service.Options{
+func run(_ context.Context) error {
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	srv := service.New(service.WithOptions(service.Options{
 		Logger: log,
 	}))
 
-	if err := svc.Start(); err != nil {
-		log.Error("Service error.", "error", err)
+	if err := srv.Start(); err != nil {
+		log.Error("Server error.", "error", err)
+		return err
 	}
+	return nil
 }

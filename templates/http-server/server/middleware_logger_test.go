@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,13 +12,13 @@ import (
 )
 
 func TestRequestLogger(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		name  string
 		input struct {
 			status int
 			req    func() *http.Request
 		}
-		want []string
+		want testLogOutput
 	}{
 		{
 			name: "log requests with status OK",
@@ -30,7 +33,14 @@ func TestRequestLogger(t *testing.T) {
 					return req
 				},
 			},
-			want: []string{"Request received.", "status", "200", "path", "/", "method", "GET", "remoteIp", "192.168.1.1"},
+			want: testLogOutput{
+				Level:    slog.LevelInfo.String(),
+				Msg:      "Request received.",
+				Status:   http.StatusOK,
+				Path:     "/",
+				Method:   http.MethodGet,
+				RemoteIP: "192.168.1.1",
+			},
 		},
 		{
 			name: "log requests with status OK (no status)",
@@ -45,16 +55,21 @@ func TestRequestLogger(t *testing.T) {
 					return req
 				},
 			},
-			want: []string{"Request received.", "status", "200", "path", "/", "method", "GET", "remoteIp", "192.168.1.1"},
+			want: testLogOutput{
+				Level:    slog.LevelInfo.String(),
+				Msg:      "Request received.",
+				Status:   http.StatusOK,
+				Path:     "/",
+				Method:   http.MethodGet,
+				RemoteIP: "192.168.1.1",
+			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			logs := []string{}
-			log := &mockLogger{
-				logs: &logs,
-			}
+			var buf bytes.Buffer
+			log := slog.New(slog.NewJSONHandler(&buf, nil))
 
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if test.input.status != 0 {
@@ -67,7 +82,12 @@ func TestRequestLogger(t *testing.T) {
 			req := test.input.req()
 			requestLogger(log, handler).ServeHTTP(rr, req)
 
-			if diff := cmp.Diff(test.want, logs); diff != "" {
+			var got testLogOutput
+			if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+				t.Fatalf("Could not unmarshal log output: %v\n", err)
+			}
+
+			if diff := cmp.Diff(test.want, got); diff != "" {
 				t.Errorf("requestLogger() = unexpected result, (-want, +got):\n%s\n", diff)
 			}
 		})
@@ -75,7 +95,7 @@ func TestRequestLogger(t *testing.T) {
 }
 
 func TestResolveIP(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		name  string
 		input func() *http.Request
 		want  string
@@ -135,4 +155,14 @@ func TestResolveIP(t *testing.T) {
 			}
 		})
 	}
+}
+
+type testLogOutput struct {
+	Level    string `json:"level"`
+	Msg      string `json:"msg"`
+	Status   int    `json:"status"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	RemoteIP string `json:"remoteIP"`
+	Error    string `json:"error"`
 }
