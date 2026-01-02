@@ -35,7 +35,8 @@ gonew github.com/KarlGW/go-template/templates/<name> github.com/<owner>/<repo>
 ## Example
 
 To create a new project based on the [http-server](templates/http-server/) template
-to a GitHub repository with the user/organization name `YourUser` and the project/module name `myproject`
+to a GitHub repository with the user/organization name `YourUser` and the
+project/module name `myproject`
 
 ```sh
 gonew github.com/KarlGW/go-template/templates/http-server github.com/YourUser/myproject
@@ -45,5 +46,10 @@ gonew github.com/KarlGW/go-template/templates/http-server github.com/YourUser/my
 Given the example path `development/go`, running the `gonew` command will create
 the new `myproject` into `development/go/myproject`.
 
-This will download the module, it's assets and rewrite the module name and import paths
+This will download the module, it's assets and rewrite the module name and
+import paths
 to match the new module name (project).
+
+As a convenience a [script](./scripts/go-new.sh) (containing a function) that
+can be but in your shell profile, or sourced into a current
+session, is provided with the project.
