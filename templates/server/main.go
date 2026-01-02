@@ -18,9 +18,9 @@ func main() {
 
 func run(_ context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := server.New(server.WithOptions(server.Options{
-		Logger: log,
-	}))
+	srv := server.New(
+		server.WithLogger(log),
+	)
 
 	if err := srv.Start(); err != nil {
 		log.Error("Server error.", "error", err)
