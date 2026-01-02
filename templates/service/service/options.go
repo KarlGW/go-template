@@ -19,7 +19,7 @@ func WithOptions(options Options) Option {
 	}
 }
 
-// WithLogger configures the server with the given logger.
+// WithLogger configures the service with the given logger.
 func WithLogger(logger *slog.Logger) Option {
 	return func(s *service) {
 		s.log = logger
