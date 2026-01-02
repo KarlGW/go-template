@@ -8,6 +8,7 @@ go-new() {
     echo "Type $type is not supported."
     exit 1
   fi
+  src+=$type
 
   if [ -z "$dst" ]; then
     echo "Destination cannot be empty."
