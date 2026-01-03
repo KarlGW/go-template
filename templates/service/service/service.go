@@ -33,6 +33,11 @@ func New(options ...Option) *service {
 
 // Start the service.
 func (s service) Start() error {
+	defer func() {
+		close(s.errCh)
+		close(s.stopCh)
+	}()
+
 	go func() {
 		// Add service startup code here.
 		// Send errors to s.errCh.
@@ -46,11 +51,9 @@ func (s service) Start() error {
 	for {
 		select {
 		case err := <-s.errCh:
-			close(s.errCh)
 			return err
 		case sig := <-s.stopCh:
 			s.log.Info("Service stopped.", "reason", sig.String())
-			close(s.stopCh)
 			return nil
 		}
 	}
