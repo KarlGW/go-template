@@ -81,6 +81,11 @@ func New(options ...Option) *server {
 // The provided context acts as parent context for
 // all server actions.
 func (s *server) Start(ctx context.Context) error {
+	defer func() {
+		close(s.errCh)
+		close(s.stopCh)
+	}()
+
 	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
 	}
@@ -107,11 +112,9 @@ func (s *server) Start(ctx context.Context) error {
 	for {
 		select {
 		case err := <-s.errCh:
-			close(s.errCh)
 			return err
 		case sig := <-s.stopCh:
 			s.log.Info("Server stopped.", "reason", sig.String())
-			close(s.stopCh)
 			return nil
 		}
 	}
