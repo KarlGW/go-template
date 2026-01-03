@@ -53,3 +53,7 @@ to match the new module name (project).
 As a convenience a [script](./scripts/go-new.sh) (containing a function) that
 can be put in your shell profile, or sourced into a current
 session, is provided with the project.
+
+## TODO
+
+* Add init script for each template to update Dockerfile and scripts with binary name.
