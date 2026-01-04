@@ -1,7 +1,7 @@
 # golang:1.25.5-alpine3.23 SHA1 digest.
 FROM golang@sha256:ac09a5f469f307e5da71e766b0bd59c9c49ea460a528cc3e6686513d64a6f1fb as builder
 
-ARG BIN
+ARG BIN="{{bin}}"
 ARG OS=linux
 ARG ARCH=amd64
 
@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=${OS} GOARCH=${ARCH} go build \
 
 FROM scratch
 
-ARG BIN
+ARG BIN="{{bin}}"
 ARG PORT
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
@@ -42,4 +42,4 @@ EXPOSE ${PORT}
 
 USER ${BIN}:${BIN}
 
-ENTRYPOINT [ "/" ]
+ENTRYPOINT [ "/{{bin}}" ]
