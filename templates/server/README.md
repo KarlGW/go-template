@@ -6,10 +6,9 @@ This repository is a template to make use of when creating new projects in
 Go. It contains scripts, Dockerfile(s) and workflows.
 
 * [Module](#module)
-* [Server](#Server)
-  * [Logging](#logging)
+* [Server](#server)
 * [Scripts](#scripts)
-* [Dockerfiles](#dockerfiles)
+* [Dockerfile](#dockerfile)
 * [Workflows](#workflows)
 
 ## Module
@@ -25,30 +24,14 @@ The template contains a simple generic foundation for creating a server that can
 
 The server implementation, startup and shutdown logic must be implemented.
 
-### Logging
-
-The `server` makes use of the interface `logger` which has the methods `Info(msg string, args ...any)` and `Error(msg string, args ...any)`. This interface matches the method on `slog` from module [`log/slog`](https://pkg.go.dev/log/slog) in the standard library.
-
-A basic implementation is provided with the server through the function `NewLogger()`. It is recommended to make use of a more advanced logger implementation.
-
 ## Scripts
 
-### `build.sh`
+### `init.sh`
 
-Script to build the binary and optionally build a docker image
-containing said binary.
+Initialises the project by performing replacements in the Dockerfile with the
+provided parameters for application name and port.
 
-**Note**: The script should have the variable `bin=` at the top modified to match the name of the projects binary, most often the directory name.
-
-**Usage**
-
-```sh
-# To build binary.
-./scripts/bash/build.sh --version <version>
-
-# To build binary and docker image.
-./scripts/bash/build.sh --version <version> --image
-```
+The script removes itself after it has been run.
 
 ### `release.sh`
 
@@ -72,44 +55,21 @@ Script to prepare a release. The script makes sure the current branch is the bas
 ./scripts/bash/release.sh --major
 ```
 
-### `go-install.sh`
+## Dockerfile
 
-Script to install dependencies of a Go project when having dependencies in a private repository. When that is not the case, there is no need to make use of this script.
+The Dockerfile needs the following updated:
 
-**Usage**
+* `ARG BIN` needs to be updated from `ARG BIN={{bin}}` to `ARG BIN=<application-name>`.
+* `ARG PORT` needs to be updated to `ARG PORT=<port-number>`.
+* `ENTRYPOINT` needs to be updated from `ENTRYPOINT [ "/{{bin}}" ]`
+  to `ENTRYPOINT [ "/<application-name>" ]`..
 
-```sh
-export PRIVATE_REPO_URL=<url-to-private-repository>
-export PRIVATE_REPO_SSH_KEY_BASE64=<base64-of-private-key-to-repository>
-
-./scripts/bash/go-install.sh
-```
-
-## Dockerfiles
-
-Two Dockerfiles are provided:
-
-* `Dockerfile` - Needs the binary pre-built and located in `build/`.
-* `Dockerfile_build` - Builds the binary during the image build.
-
-**Note**: The Dockerfile(s) needs the following updated:
-
-**First step**
-
-* `ARG BIN` needs to be updated `ARG BIN=<binary-name>` (if not provided during build).
-
-**Second step**
-
-* `ARG BIN` needs to be updated `ARG BIN=<binary-name>` (if not provided during build).
-* `ARG PORT` needs to be updated to `ARG PORT=<port-number>` (if not provided during build).
-
-* `ENTRYPOINT` needs to be updated to `ENTRYPOINT [ "/<binary-name>" ]`.
+These steps can be performed by running `scripts/init.sh`.
 
 If `ca-certificates` is not needed by the project, the following lines can be deleted:
 
 * `RUN apk update && apk add --no-cache ca-certificates && update-ca-certificates` from the **First step**.
 * `COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/` from the **Second step**.
-
 
 ## Workflows
 
