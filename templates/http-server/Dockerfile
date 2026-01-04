@@ -31,7 +31,7 @@ RUN CGO_ENABLED=0 GOOS=${OS} GOARCH=${ARCH} go build \
 FROM scratch
 
 ARG BIN="{{bin}}"
-ARG PORT
+ARG PORT={{port}}
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd

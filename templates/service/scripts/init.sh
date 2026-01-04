@@ -10,5 +10,9 @@ sedi() {
 }
 
 app_name=$1
+if [[ -z "$app_name" ]]; then
+  echo "Provide a name for the application."
+  exit 1
+fi
 
 sedi "s/{{bin}}/$app_name/g" Dockerfile && rm ./scripts/init.sh

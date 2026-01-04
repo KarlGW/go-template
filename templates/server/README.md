@@ -26,6 +26,13 @@ The server implementation, startup and shutdown logic must be implemented.
 
 ## Scripts
 
+### `init.sh`
+
+Initialises the project by performing replacements in the Dockerfile with the
+provided parameters for application name and port.
+
+The script removes itself after it has been run.
+
 ### `release.sh`
 
 Script to prepare a release. The script makes sure the current branch is the base branch (often `main`), pulls from remote, run tests and then finally creates a Git tag with the version number.
@@ -50,12 +57,14 @@ Script to prepare a release. The script makes sure the current branch is the bas
 
 ## Dockerfile
 
-**Note**: The Dockerfile needs the following updated:
+The Dockerfile needs the following updated:
 
-* `ARG BIN` needs to be updated `ARG BIN=<binary-name>` (if not provided during build).
-* `ARG PORT` needs to be updated to `ARG PORT=<port-number>` (if not provided during build).
+* `ARG BIN` needs to be updated from `ARG BIN={{bin}}` to `ARG BIN=<application-name>`.
+* `ARG PORT` needs to be updated to `ARG PORT=<port-number>`.
+* `ENTRYPOINT` needs to be updated from `ENTRYPOINT [ "/{{bin}}" ]`
+  to `ENTRYPOINT [ "/<application-name>" ]`..
 
-* `ENTRYPOINT` needs to be updated to `ENTRYPOINT [ "/<binary-name>" ]`.
+These steps can be performed by running `scripts/init.sh`.
 
 If `ca-certificates` is not needed by the project, the following lines can be deleted:
 
