@@ -18,11 +18,11 @@ func main() {
 
 func run(_ context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := service.New(
+	svc := service.New(
 		service.WithLogger(log),
 	)
 
-	if err := srv.Start(); err != nil {
+	if err := svc.Start(); err != nil {
 		log.Error("Service error.", "error", err)
 		return err
 	}

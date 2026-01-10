@@ -116,6 +116,9 @@ func (s *service) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case sr := <-stopCh:
+		if sr.err != nil {
+			s.log.Info("Error shutting down service.", "error", sr.err)
+		}
 		s.log.Info("Service stopped.", "reason", sr.signal.String())
 		return nil
 	}
