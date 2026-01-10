@@ -16,10 +16,7 @@ type service struct {
 
 // New returns a new service.
 func New(options ...Option) *service {
-	s := &service{
-		stopCh: make(chan os.Signal),
-		errCh:  make(chan error),
-	}
+	s := &service{}
 	for _, option := range options {
 		option(s)
 	}
@@ -31,11 +28,22 @@ func New(options ...Option) *service {
 	return s
 }
 
+type stopResult struct {
+	signal os.Signal
+	err    error
+}
+
 // Start the service.
 func (s service) Start() error {
+	stopCh := make(chan stopResult, 1)
+	errCh := make(chan error, 1)
 	defer func() {
-		close(s.errCh)
-		close(s.stopCh)
+		close(stopCh)
+		close(errCh)
+	}()
+
+	go func() {
+		s.stop(stopCh)
 	}()
 
 	go func() {
@@ -43,39 +51,37 @@ func (s service) Start() error {
 		// Send errors to s.errCh.
 	}()
 
-	go func() {
-		s.stop()
-	}()
-
 	s.log.Info("Service started.")
-	for {
-		select {
-		case err := <-s.errCh:
-			return err
-		case sig := <-s.stopCh:
-			s.log.Info("Service stopped.", "reason", sig.String())
-			return nil
-		}
+	select {
+	case err := <-errCh:
+		return err
+	case sr := <-stopCh:
+		s.log.Info("Service stopped.", "reason", sr.signal.String())
+		return nil
 	}
 }
 
 // stop the service.
-func (s service) stop() {
+func (s service) stop(stop chan stopResult) {
 	signals := [3]os.Signal{
 		os.Interrupt,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, signals[:]...)
-	sig := <-stop
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, signals[:]...)
+	sig := <-interrupt
 	// Reset signals so that a second interrupt will force shutdown.
 	signal.Reset(signals[:]...)
 
+	sr := stopResult{
+		signal: sig,
+	}
+
 	// Add service shutdown logic here.
 
-	s.stopCh <- sig
+	stop <- sr
 }
 
 func defaultLogger() *slog.Logger {

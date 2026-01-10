@@ -1,4 +1,4 @@
-package server
+package service
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Defaults for server configuration.
+// Defaults for service configuration.
 const (
 	defaultHost            = "0.0.0.0"
 	defaultPort            = "8080"
@@ -22,18 +22,16 @@ const (
 	defaultShutdownTimeout = 15 * time.Second
 )
 
-// server holds an http.Server, a router and it's configured options.
-type server struct {
+// service holds an http.Server, a router and it's configured options.
+type service struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
-	stopCh          chan os.Signal
-	errCh           chan error
 	tls             TLSConfig
 	shutdownTimeout time.Duration
 }
 
-// TLSConfig holds the configuration for the server's TLS settings.
+// TLSConfig holds the configuration for the service TLS settings.
 type TLSConfig struct {
 	Certificate string
 	Key         string
@@ -44,16 +42,14 @@ func (c TLSConfig) isEmpty() bool {
 	return len(c.Certificate) == 0 && len(c.Key) == 0
 }
 
-// New returns a new server.
-func New(options ...Option) *server {
-	s := &server{
+// New returns a new service.
+func New(options ...Option) *service {
+	s := &service{
 		httpServer: &http.Server{
 			ReadTimeout:  defaultReadTimeout,
 			WriteTimeout: defaultWriteTimeout,
 			IdleTimeout:  defaultIdleTimeout,
 		},
-		stopCh:          make(chan os.Signal),
-		errCh:           make(chan error),
 		shutdownTimeout: defaultShutdownTimeout,
 	}
 	for _, option := range options {
@@ -76,14 +72,25 @@ func New(options ...Option) *server {
 	return s
 }
 
-// Start the server.
+type stopResult struct {
+	signal os.Signal
+	err    error
+}
+
+// Start the service.
 //
 // The provided context acts as parent context for
-// all server actions.
-func (s *server) Start(ctx context.Context) error {
+// all service actions.
+func (s *service) Start(ctx context.Context) error {
+	stopCh := make(chan stopResult, 1)
+	errCh := make(chan error, 1)
 	defer func() {
-		close(s.errCh)
-		close(s.stopCh)
+		close(stopCh)
+		close(errCh)
+	}()
+
+	go func() {
+		s.stop(stopCh)
 	}()
 
 	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
@@ -94,35 +101,29 @@ func (s *server) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.listenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.errCh <- err
+			errCh <- err
 		}
 	}()
 
 	select {
-	case err := <-s.errCh:
+	case err := <-errCh:
 		return err
 	case <-time.After(100 * time.Millisecond):
-		s.log.Info("Server started.", "address", s.httpServer.Addr)
+		s.log.Info("Service started.", "address", s.httpServer.Addr)
 	}
 
-	go func() {
-		s.stop()
-	}()
-
-	for {
-		select {
-		case err := <-s.errCh:
-			return err
-		case sig := <-s.stopCh:
-			s.log.Info("Server stopped.", "reason", sig.String())
-			return nil
-		}
+	select {
+	case err := <-errCh:
+		return err
+	case sr := <-stopCh:
+		s.log.Info("Service stopped.", "reason", sr.signal.String())
+		return nil
 	}
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
 // ListenAndServeTLS depending on TLS configuration.
-func (s *server) listenAndServe() error {
+func (s *service) listenAndServe() error {
 	if !s.tls.isEmpty() {
 		s.httpServer.TLSConfig = newTLSConfig()
 		return s.httpServer.ListenAndServeTLS(s.tls.Certificate, s.tls.Key)
@@ -130,29 +131,33 @@ func (s *server) listenAndServe() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// stop the server.
-func (s server) stop() {
+// stop the service.
+func (s service) stop(stop chan stopResult) {
 	signals := [3]os.Signal{
 		os.Interrupt,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, signals[:]...)
-	sig := <-stop
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, signals[:]...)
+	sig := <-interrupt
 	// Reset signals so that a second interrupt will force shutdown.
 	signal.Reset(signals[:]...)
+
+	sr := stopResult{
+		signal: sig,
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 	defer cancel()
 
 	s.httpServer.SetKeepAlivesEnabled(false)
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		s.errCh <- err
+		sr.err = err
 	}
 
-	s.stopCh <- sig
+	stop <- sr
 }
 
 // newTLSConfig returns a new tls.Config.

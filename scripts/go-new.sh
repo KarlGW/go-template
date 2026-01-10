@@ -4,7 +4,7 @@ go-new() {
   local type=$1
   local dst=$2
 
-  if [[ "$type" != "base" ]] && [[ "$type" != "http-server" ]] && [[ "$type" != "server" ]] && [[ "$type" != "service" ]]; then
+  if [[ "$type" != "base" ]] && [[ "$type" != "http-service" ]] && [[ "$type" != "service" ]]; then
     echo "Type $type is not supported."
     exit 1
   fi
