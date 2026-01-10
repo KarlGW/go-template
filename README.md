@@ -10,8 +10,7 @@ Go. It contains scripts, Dockerfile(s) and workflows.
 Four templates are provided:
 
 * [base](templates/base/) - Base project.
-* [http-server](templates/http-server/) - Basic HTTP server project.
-* [server](templates/server/) - General server project.
+* [http-service](templates/http-service/) - Basic HTTP service project.
 * [service](templates/service/) - General service project.
 
 ## Getting started
@@ -34,12 +33,12 @@ gonew github.com/KarlGW/go-template/templates/<name> github.com/<owner>/<repo>
 
 ## Example
 
-To create a new project based on the [http-server](templates/http-server/) template
+To create a new project based on the [http-service](templates/http-service/) template
 to a GitHub repository with the user/organization name `YourUser` and the
 project/module name `myproject`
 
 ```sh
-gonew github.com/KarlGW/go-template/templates/http-server github.com/YourUser/myproject
+gonew github.com/KarlGW/go-template/templates/http-service github.com/YourUser/myproject
 ```
 
 **Note**: The directory and files will be created in the current working directory.

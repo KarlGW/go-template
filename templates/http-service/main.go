@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
-	"github.com/KarlGW/go-template/templates/service/internal/service"
+	"github.com/KarlGW/go-template/templates/http-server/internal/service"
 )
 
 func main() {
@@ -16,13 +17,13 @@ func main() {
 	}
 }
 
-func run(_ context.Context) error {
+func run(ctx context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	svc := service.New(
 		service.WithLogger(log),
 	)
 
-	if err := svc.Start(); err != nil {
+	if err := svc.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("Service error.", "error", err)
 		return err
 	}

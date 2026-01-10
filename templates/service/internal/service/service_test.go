@@ -1,4 +1,4 @@
-package server
+package service
 
 import (
 	"log/slog"
@@ -15,12 +15,12 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name  string
 		input []Option
-		want  *server
+		want  *service
 	}{
 		{
 			name:  "default",
 			input: []Option{},
-			want: &server{
+			want: &service{
 				log: defaultLogger(),
 			},
 		},
@@ -31,7 +31,7 @@ func TestNew(t *testing.T) {
 					Logger: defaultLogger(),
 				}),
 			},
-			want: &server{
+			want: &service{
 				log: defaultLogger(),
 			},
 		},
@@ -44,16 +44,16 @@ func TestNew(t *testing.T) {
 				t.Errorf("New(%v) = nil; want %v", test.input, test.want)
 			}
 
-			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(server{}), cmpopts.IgnoreUnexported(slog.Logger{}), cmpopts.IgnoreFields(server{}, "stopCh", "errCh")); diff != "" {
+			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(service{}), cmpopts.IgnoreUnexported(slog.Logger{})); diff != "" {
 				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", test.input, diff)
 			}
 		})
 	}
 }
 
-func TestServer_Start(t *testing.T) {
-	t.Run("start server", func(t *testing.T) {
-		srv := &server{
+func TestService_Start(t *testing.T) {
+	t.Run("start service", func(t *testing.T) {
+		srv := &service{
 			log:    slog.New(slog.DiscardHandler),
 			stopCh: make(chan os.Signal),
 			errCh:  make(chan error),

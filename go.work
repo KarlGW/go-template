@@ -2,7 +2,6 @@ go 1.25.5
 
 use (
 	./templates/base
-	./templates/http-server
-	./templates/server
+	./templates/http-service
 	./templates/service
 )

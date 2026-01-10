@@ -1,4 +1,4 @@
-package server
+package service
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"syscall"
 	"testing"
 	"time"
@@ -19,12 +18,12 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name  string
 		input []Option
-		want  *server
+		want  *service
 	}{
 		{
 			name:  "default",
 			input: []Option{},
-			want: &server{
+			want: &service{
 				httpServer: &http.Server{
 					Addr:         defaultHost + ":" + defaultPort,
 					Handler:      &router{ServeMux: http.NewServeMux()},
@@ -50,7 +49,7 @@ func TestNew(t *testing.T) {
 					IdleTimeout:  15 * time.Second,
 				}),
 			},
-			want: &server{
+			want: &service{
 				httpServer: &http.Server{
 					Addr:         "localhost:8081",
 					Handler:      &router{ServeMux: http.NewServeMux()},
@@ -72,44 +71,40 @@ func TestNew(t *testing.T) {
 				t.Errorf("New(%v) = nil; want %v", test.input, test.want)
 			}
 
-			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(server{}), cmpopts.IgnoreUnexported(http.Server{}, http.ServeMux{}, slog.Logger{}), cmpopts.IgnoreFields(server{}, "stopCh", "errCh")); diff != "" {
+			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(service{}), cmpopts.IgnoreUnexported(http.Server{}, http.ServeMux{}, slog.Logger{})); diff != "" {
 				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", test.input, diff)
 			}
 		})
 	}
 }
 
-func TestServer_Start(t *testing.T) {
-	t.Run("start server", func(t *testing.T) {
+func TestService_Start(t *testing.T) {
+	t.Run("start service", func(t *testing.T) {
 		var buf bytes.Buffer
-		srv := &server{
+		svc := &service{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},
-			log:    slog.New(slog.NewJSONHandler(&buf, nil)),
-			stopCh: make(chan os.Signal),
-			errCh:  make(chan error),
+			log: slog.New(slog.NewJSONHandler(&buf, nil)),
 		}
 		go func() {
 			time.Sleep(time.Millisecond * 200)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		if gotErr := srv.Start(t.Context()); gotErr != nil {
+		if gotErr := svc.Start(t.Context()); gotErr != nil {
 			t.Errorf("Start() = unexpected result, got error: %v\n", gotErr)
 		}
 	})
 }
 
-func TestServer_Start_Error(t *testing.T) {
-	t.Run("start server", func(t *testing.T) {
-		srv := &server{
+func TestService_Start_Error(t *testing.T) {
+	t.Run("start service", func(t *testing.T) {
+		svc := &service{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},
-			log:    slog.New(slog.DiscardHandler),
-			stopCh: make(chan os.Signal),
-			errCh:  make(chan error),
+			log: slog.New(slog.DiscardHandler),
 		}
 
 		httpServer := &http.Server{
@@ -118,14 +113,14 @@ func TestServer_Start_Error(t *testing.T) {
 
 		go func() {
 			go func() {
-				time.Sleep(time.Millisecond * 100)
+				time.Sleep(time.Millisecond * 200)
 				httpServer.Shutdown(context.Background())
 			}()
 			httpServer.ListenAndServe()
 		}()
 
 		time.Sleep(time.Millisecond * 10)
-		gotErr := srv.Start(t.Context())
+		gotErr := svc.Start(t.Context())
 		if gotErr == nil {
 			t.Errorf("Start() = nil; want error")
 		}
