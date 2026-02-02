@@ -22,7 +22,7 @@ func run(_ context.Context) error {
 		server.WithLogger(log),
 	)
 
-	if err := srv.Start(); err != nil {
+	if err := svc.Start(); err != nil {
 		log.Error("Server error.", "error", err)
 		return err
 	}
