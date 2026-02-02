@@ -22,7 +22,7 @@ The module and its imports needs to be updated.
 
 The template contains a simple generic foundation for creating a service that can be used as a starting point. The `main.go` has the bare minimum to start, if need be, update `main.go` with additional setup code from a `config` package or other means of configuration.
 
-The service implementation, startup and shutdown logic must be implemented.
+The server implementation, startup and shutdown logic must be implemented.
 
 ## Scripts
 

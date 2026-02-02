@@ -6,16 +6,16 @@ This repository is a template to make use of when creating new projects in
 Go. It contains scripts, Dockerfile(s) and workflows.
 
 * [Module](#module)
-* [HTTP server](#http-server)
+* [HTTP service](#http-service)
   * [Routes](#routes)
   * [Logging](#logging)
 * [Scripts](#scripts)
 * [Dockerfile](#dockerfile)
 * [Workflows](#workflows)
 
-## HTTP server
+## HTTP service
 
-The template contains a simple HTTP server that can be used as a starting point. The `main.go` has the bare minimum to start, if need be, update `main.go` with additional setup code from a `config` package or other means of configuration.
+The template contains a simple HTTP service that can be used as a starting point. The `main.go` has the bare minimum to start, if need be, update `main.go` with additional setup code from a `config` package or other means of configuration.
 
 ### Routes
 

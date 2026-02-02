@@ -1,4 +1,5 @@
-module github.com/KarlGW/go-template/templates/http-server
+module github.com/KarlGW/go-template/templates/http-service
+
 
 go 1.25.5
 
