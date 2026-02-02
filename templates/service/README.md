@@ -6,7 +6,7 @@ This repository is a template to make use of when creating new projects in
 Go. It contains scripts, Dockerfile(s) and workflows.
 
 * [Module](#module)
-* [Server](#server)
+* [Service](#service)
 * [Scripts](#scripts)
 * [Dockerfile](#dockerfile)
 * [Workflows](#workflows)
@@ -18,9 +18,9 @@ The module and its imports needs to be updated.
 1. Update `go.mod` with the correct module name.
 2. Update imports to the new module.
 
-## Server
+## Service
 
-The template contains a simple generic foundation for creating a server that can be used as a starting point. The `main.go` has the bare minimum to start, if need be, update `main.go` with additional setup code from a `config` package or other means of configuration.
+The template contains a simple generic foundation for creating a service that can be used as a starting point. The `main.go` has the bare minimum to start, if need be, update `main.go` with additional setup code from a `config` package or other means of configuration.
 
 The server implementation, startup and shutdown logic must be implemented.
 
