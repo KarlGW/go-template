@@ -81,7 +81,7 @@ func TestNew(t *testing.T) {
 func TestServer_Start(t *testing.T) {
 	t.Run("start server", func(t *testing.T) {
 		var buf bytes.Buffer
-		svc := &server{
+		srv := &server{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},
@@ -92,7 +92,7 @@ func TestServer_Start(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		if gotErr := svc.Start(t.Context()); gotErr != nil {
+		if gotErr := srv.Start(t.Context()); gotErr != nil {
 			t.Errorf("Start() = unexpected result, got error: %v\n", gotErr)
 		}
 	})
@@ -100,7 +100,7 @@ func TestServer_Start(t *testing.T) {
 
 func TestServer_Start_Error(t *testing.T) {
 	t.Run("start server", func(t *testing.T) {
-		svc := &server{
+		srv := &server{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},
@@ -120,7 +120,7 @@ func TestServer_Start_Error(t *testing.T) {
 		}()
 
 		time.Sleep(time.Millisecond * 10)
-		gotErr := svc.Start(t.Context())
+		gotErr := srv.Start(t.Context())
 		if gotErr == nil {
 			t.Errorf("Start() = nil; want error")
 		}
