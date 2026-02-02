@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"bytes"
@@ -18,12 +18,12 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name  string
 		input []Option
-		want  *service
+		want  *server
 	}{
 		{
 			name:  "default",
 			input: []Option{},
-			want: &service{
+			want: &server{
 				httpServer: &http.Server{
 					Addr:         defaultHost + ":" + defaultPort,
 					Handler:      &router{ServeMux: http.NewServeMux()},
@@ -49,7 +49,7 @@ func TestNew(t *testing.T) {
 					IdleTimeout:  15 * time.Second,
 				}),
 			},
-			want: &service{
+			want: &server{
 				httpServer: &http.Server{
 					Addr:         "localhost:8081",
 					Handler:      &router{ServeMux: http.NewServeMux()},
@@ -71,17 +71,17 @@ func TestNew(t *testing.T) {
 				t.Errorf("New(%v) = nil; want %v", test.input, test.want)
 			}
 
-			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(service{}), cmpopts.IgnoreUnexported(http.Server{}, http.ServeMux{}, slog.Logger{})); diff != "" {
+			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(server{}), cmpopts.IgnoreUnexported(http.Server{}, http.ServeMux{}, slog.Logger{})); diff != "" {
 				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", test.input, diff)
 			}
 		})
 	}
 }
 
-func TestService_Start(t *testing.T) {
-	t.Run("start service", func(t *testing.T) {
+func TestServer_Start(t *testing.T) {
+	t.Run("start server", func(t *testing.T) {
 		var buf bytes.Buffer
-		svc := &service{
+		svc := &server{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},
@@ -98,9 +98,9 @@ func TestService_Start(t *testing.T) {
 	})
 }
 
-func TestService_Start_Error(t *testing.T) {
-	t.Run("start service", func(t *testing.T) {
-		svc := &service{
+func TestServer_Start_Error(t *testing.T) {
+	t.Run("start server", func(t *testing.T) {
+		svc := &server{
 			httpServer: &http.Server{
 				Addr: "localhost:8080",
 			},

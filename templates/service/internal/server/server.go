@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"log/slog"
@@ -7,16 +7,16 @@ import (
 	"syscall"
 )
 
-// service ...
-type service struct {
+// server ...
+type server struct {
 	log    *slog.Logger
 	stopCh chan os.Signal
 	errCh  chan error
 }
 
-// New returns a new service.
-func New(options ...Option) *service {
-	s := &service{}
+// New returns a new server.
+func New(options ...Option) *server {
+	s := &server{}
 	for _, option := range options {
 		option(s)
 	}
@@ -33,8 +33,8 @@ type stopResult struct {
 	err    error
 }
 
-// Start the service.
-func (s service) Start() error {
+// Start the server.
+func (s server) Start() error {
 	stopCh := make(chan stopResult, 1)
 	errCh := make(chan error, 1)
 	defer func() {
@@ -47,25 +47,25 @@ func (s service) Start() error {
 	}()
 
 	go func() {
-		// Add service startup code here.
+		// Add server startup code here.
 		// Send errors to s.errCh.
 	}()
 
-	s.log.Info("Service started.")
+	s.log.Info("Server started.")
 	select {
 	case err := <-errCh:
 		return err
 	case sr := <-stopCh:
 		if sr.err != nil {
-			s.log.Info("Error shutting down service.", "error", sr.err)
+			s.log.Info("Error shutting down server.", "error", sr.err)
 		}
-		s.log.Info("Service stopped.", "reason", sr.signal.String())
+		s.log.Info("Server stopped.", "reason", sr.signal.String())
 		return nil
 	}
 }
 
-// stop the service.
-func (s service) stop(stop chan stopResult) {
+// stop the server.
+func (s server) stop(stop chan stopResult) {
 	signals := [3]os.Signal{
 		os.Interrupt,
 		syscall.SIGINT,
@@ -82,7 +82,7 @@ func (s service) stop(stop chan stopResult) {
 		signal: sig,
 	}
 
-	// Add service shutdown logic here.
+	// Add server shutdown logic here.
 
 	stop <- sr
 }

@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"log/slog"
@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// Option is a function that configures the service.
-type Option func(*service)
+// Option is a function that configures the server.
+type Option func(*server)
 
-// Options holds the configuration for the service.
+// Options holds the configuration for the server.
 type Options struct {
 	Router       *router
 	TLSConfig    TLSConfig
@@ -21,9 +21,9 @@ type Options struct {
 	IdleTimeout  time.Duration
 }
 
-// WithOptions configures the service with the given Options.
+// WithOptions configures the server with the given Options.
 func WithOptions(options Options) Option {
-	return func(s *service) {
+	return func(s *server) {
 		if options.Router != nil {
 			s.router = options.Router
 			s.httpServer.Handler = s.router
@@ -49,9 +49,9 @@ func WithOptions(options Options) Option {
 	}
 }
 
-// WithLogger configures the service with the given logger.
+// WithLogger configures the server with the given logger.
 func WithLogger(logger *slog.Logger) Option {
-	return func(s *service) {
+	return func(s *server) {
 		s.log = logger
 	}
 }

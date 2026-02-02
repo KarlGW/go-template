@@ -1,4 +1,4 @@
-package service
+package server
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Defaults for service configuration.
+// Defaults for server configuration.
 const (
 	defaultHost            = "0.0.0.0"
 	defaultPort            = "8080"
@@ -22,8 +22,8 @@ const (
 	defaultShutdownTimeout = 15 * time.Second
 )
 
-// service holds an http.Server, a router and it's configured options.
-type service struct {
+// server holds an http.Server, a router and it's configured options.
+type server struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
@@ -31,7 +31,7 @@ type service struct {
 	shutdownTimeout time.Duration
 }
 
-// TLSConfig holds the configuration for the service TLS settings.
+// TLSConfig holds the configuration for the server TLS settings.
 type TLSConfig struct {
 	Certificate string
 	Key         string
@@ -42,9 +42,9 @@ func (c TLSConfig) isEmpty() bool {
 	return len(c.Certificate) == 0 && len(c.Key) == 0
 }
 
-// New returns a new service.
-func New(options ...Option) *service {
-	s := &service{
+// New returns a new server.
+func New(options ...Option) *server {
+	s := &server{
 		httpServer: &http.Server{
 			ReadTimeout:  defaultReadTimeout,
 			WriteTimeout: defaultWriteTimeout,
@@ -77,11 +77,11 @@ type stopResult struct {
 	err    error
 }
 
-// Start the service.
+// Start the server.
 //
 // The provided context acts as parent context for
-// all service actions.
-func (s *service) Start(ctx context.Context) error {
+// all server actions.
+func (s *server) Start(ctx context.Context) error {
 	stopCh := make(chan stopResult, 1)
 	errCh := make(chan error, 1)
 	defer func() {
@@ -109,7 +109,7 @@ func (s *service) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-time.After(100 * time.Millisecond):
-		s.log.Info("Service started.", "address", s.httpServer.Addr)
+		s.log.Info("Server started.", "address", s.httpServer.Addr)
 	}
 
 	select {
@@ -117,16 +117,16 @@ func (s *service) Start(ctx context.Context) error {
 		return err
 	case sr := <-stopCh:
 		if sr.err != nil {
-			s.log.Info("Error shutting down service.", "error", sr.err)
+			s.log.Info("Error shutting down server.", "error", sr.err)
 		}
-		s.log.Info("Service stopped.", "reason", sr.signal.String())
+		s.log.Info("Server stopped.", "reason", sr.signal.String())
 		return nil
 	}
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
 // ListenAndServeTLS depending on TLS configuration.
-func (s *service) listenAndServe() error {
+func (s *server) listenAndServe() error {
 	if !s.tls.isEmpty() {
 		s.httpServer.TLSConfig = newTLSConfig()
 		return s.httpServer.ListenAndServeTLS(s.tls.Certificate, s.tls.Key)
@@ -134,8 +134,8 @@ func (s *service) listenAndServe() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// stop the service.
-func (s service) stop(stop chan stopResult) {
+// stop the server.
+func (s server) stop(stop chan stopResult) {
 	signals := [3]os.Signal{
 		os.Interrupt,
 		syscall.SIGINT,
