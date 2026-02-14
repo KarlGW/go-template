@@ -8,8 +8,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+)
+
+// State represents a server state.
+type State int
+
+const (
+	StateStopped State = iota
+	StateRunning
 )
 
 // Defaults for server configuration.
@@ -27,8 +36,13 @@ type server struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
+	shutdownHook    func() os.Signal
+	shutdownCh      chan *shutdownResult
+	errCh           chan error
 	tls             TLSConfig
 	shutdownTimeout time.Duration
+	state           State
+	mu              sync.Mutex
 }
 
 // TLSConfig holds the configuration for the server TLS settings.
@@ -51,11 +65,15 @@ func New(options ...Option) *server {
 			IdleTimeout:  defaultIdleTimeout,
 		},
 		shutdownTimeout: defaultShutdownTimeout,
+		state:           StateStopped,
 	}
 	for _, option := range options {
 		option(s)
 	}
 
+	if s.shutdownHook == nil {
+		s.shutdownHook = defaultShutdownHook
+	}
 	if s.router == nil {
 		s.router = NewRouter()
 	}
@@ -72,95 +90,102 @@ func New(options ...Option) *server {
 	return s
 }
 
-type stopResult struct {
-	signal os.Signal
-	err    error
-}
-
 // Start the server.
 //
 // The provided context acts as parent context for
 // all server actions.
 func (s *server) Start(ctx context.Context) error {
-	stopCh := make(chan stopResult, 1)
-	errCh := make(chan error, 1)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	s.shutdownCh = make(chan *shutdownResult)
+	s.errCh = make(chan error)
+
+	sr := &shutdownResult{}
 	defer func() {
-		close(stopCh)
-		close(errCh)
+		close(s.shutdownCh)
+		close(s.errCh)
+
+		s.log.Info("Server stopped.", "reason", sr.reason())
 	}()
 
 	go func() {
-		s.stop(stopCh)
+		sr.setSignal(s.shutdownHook())
+		if s.State() != StateStopped {
+			s.shutdownCh <- sr
+		}
 	}()
 
-	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
-		return ctx
+	if err := s.startup(ctx); err != nil {
+		return err
 	}
 
-	s.routes()
+	s.setState(StateRunning)
+	s.log.Info("Server started.", "address", s.httpServer.Addr)
 
+	<-s.shutdownCh
+	if err := s.shutdown(ctx, sr); err != nil {
+		return err
+	}
+	s.setState(StateStopped)
+	return nil
+}
+
+// State of the server.
+func (s *server) State() State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state
+}
+
+// startup runs the startup sequence of the server.
+func (s *server) startup(ctx context.Context) error {
 	go func() {
-		if err := s.listenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+		if err := s.listenAndServe(ctx); err != nil && err != http.ErrServerClosed {
+			s.errCh <- err
 		}
 	}()
 
 	select {
-	case err := <-errCh:
+	case err := <-s.errCh:
 		return err
-	case <-time.After(100 * time.Millisecond):
-		s.log.Info("Server started.", "address", s.httpServer.Addr)
+	case <-time.After(50 * time.Millisecond):
 	}
 
-	select {
-	case err := <-errCh:
+	return nil
+}
+
+// shutdown runs the shutdown sequence of the server.
+func (s *server) shutdown(ctx context.Context, sr *shutdownResult) error {
+	ctx, cancel := context.WithTimeout(ctx, s.shutdownTimeout)
+	defer cancel()
+
+	s.httpServer.SetKeepAlivesEnabled(false)
+	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return err
-	case sr := <-stopCh:
-		if sr.err != nil {
-			s.log.Info("Error shutting down server.", "error", sr.err)
-		}
-		s.log.Info("Server stopped.", "reason", sr.signal.String())
-		return nil
 	}
+	return nil
+}
+
+// setState sets the state of the server.
+func (s *server) setState(state State) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = state
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
 // ListenAndServeTLS depending on TLS configuration.
-func (s *server) listenAndServe() error {
+func (s *server) listenAndServe(ctx context.Context) error {
+	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
+		return ctx
+	}
+
 	if !s.tls.isEmpty() {
 		s.httpServer.TLSConfig = newTLSConfig()
 		return s.httpServer.ListenAndServeTLS(s.tls.Certificate, s.tls.Key)
 	}
 	return s.httpServer.ListenAndServe()
-}
-
-// stop the server.
-func (s server) stop(stop chan stopResult) {
-	signals := [3]os.Signal{
-		os.Interrupt,
-		syscall.SIGINT,
-		syscall.SIGTERM,
-	}
-
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, signals[:]...)
-	sig := <-interrupt
-	// Reset signals so that a second interrupt will force shutdown.
-	signal.Reset(signals[:]...)
-
-	sr := stopResult{
-		signal: sig,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
-	defer cancel()
-
-	s.httpServer.SetKeepAlivesEnabled(false)
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		sr.err = err
-	}
-
-	stop <- sr
 }
 
 // newTLSConfig returns a new tls.Config.
@@ -180,6 +205,48 @@ func newTLSConfig() *tls.Config {
 	}
 }
 
+// defaultLogger returns a default logger for the server.
 func defaultLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
+}
+
+// shutdownSignals returns shutdown signals.
+func shutdownSignals() []os.Signal {
+	return []os.Signal{
+		os.Interrupt,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	}
+}
+
+// defaultShutdownHook is the default shutdown hook for the server,
+// makes use of the default shutdown signals.
+func defaultShutdownHook() os.Signal {
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, shutdownSignals()...)
+	sig := <-shutdown
+	signal.Reset(shutdownSignals()...)
+	return sig
+}
+
+type shutdownResult struct {
+	signal os.Signal
+	mu     sync.Mutex
+}
+
+func (s *shutdownResult) setSignal(signal os.Signal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.signal = signal
+}
+
+func (s *shutdownResult) reason() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.signal != nil {
+		return s.signal.String()
+	}
+
+	return "error"
 }
