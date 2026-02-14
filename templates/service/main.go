@@ -16,13 +16,13 @@ func main() {
 	}
 }
 
-func run(_ context.Context) error {
+func run(ctx context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	srv := server.New(
 		server.WithLogger(log),
 	)
 
-	if err := srv.Start(); err != nil {
+	if err := srv.Start(ctx); err != nil {
 		log.Error("Server error.", "error", err)
 		return err
 	}

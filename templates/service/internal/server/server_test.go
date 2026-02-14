@@ -44,7 +44,13 @@ func TestNew(t *testing.T) {
 				t.Errorf("New(%v) = nil; want %v", test.input, test.want)
 			}
 
-			if diff := cmp.Diff(test.want, got, cmp.AllowUnexported(server{}), cmpopts.IgnoreUnexported(slog.Logger{})); diff != "" {
+			if diff := cmp.Diff(
+				test.want,
+				got,
+				cmp.AllowUnexported(server{}),
+				cmpopts.IgnoreUnexported(slog.Logger{}),
+				cmpopts.IgnoreFields(server{}, "shutdownHook", "mu"),
+			); diff != "" {
 				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", test.input, diff)
 			}
 		})
@@ -53,17 +59,18 @@ func TestNew(t *testing.T) {
 
 func TestServer_Start(t *testing.T) {
 	t.Run("start server", func(t *testing.T) {
-		srv := &server{
-			log:    slog.New(slog.DiscardHandler),
-			stopCh: make(chan os.Signal),
-			errCh:  make(chan error),
-		}
+		shutdownCh := make(chan os.Signal)
 		go func() {
-			time.Sleep(time.Millisecond * 100)
-			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+			time.Sleep(time.Millisecond * 200)
+			shutdownCh <- syscall.SIGINT
 		}()
 
-		if gotErr := srv.Start(); gotErr != nil {
+		srv := New()
+		srv.shutdownHook = func() os.Signal {
+			return <-shutdownCh
+		}
+
+		if gotErr := srv.Start(t.Context()); gotErr != nil {
 			t.Errorf("Start() = unexpected result, got error: %v\n", gotErr)
 		}
 	})
