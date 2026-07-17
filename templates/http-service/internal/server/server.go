@@ -3,22 +3,24 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
-// State represents a server state.
-type State int
+// state represents a server state.
+type state int
 
 const (
-	StateStopped State = iota
-	StateRunning
+	stopped state = iota
+	started
 )
 
 // Defaults for server configuration.
@@ -28,20 +30,25 @@ const (
 	defaultReadTimeout     = 15 * time.Second
 	defaultWriteTimeout    = 15 * time.Second
 	defaultIdleTimeout     = 30 * time.Second
+	defaultStartTimeout    = 15 * time.Second
 	defaultShutdownTimeout = 15 * time.Second
+
+	httpServerTimeout = 50 * time.Millisecond
 )
 
-// server holds an http.Server, a router and it's configured options.
+// server is the main orchestrator and server of the application.
+// It contains an http.Server, a router and it's configured options.
 type server struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
 	shutdownHook    func() os.Signal
-	shutdownCh      chan *shutdownResult
-	errCh           chan error
 	tls             TLSConfig
+	startFuncs      []func(ctx context.Context) error
+	shutdownFuncs   []func(ctx context.Context) error
+	startTimeout    time.Duration
 	shutdownTimeout time.Duration
-	state           State
+	state           state
 	mu              sync.Mutex
 }
 
@@ -58,14 +65,19 @@ func (c TLSConfig) isEmpty() bool {
 
 // New returns a new server.
 func New(options ...Option) *server {
+	r := NewRouter()
 	s := &server{
 		httpServer: &http.Server{
+			Addr:         defaultHost + ":" + defaultPort,
 			ReadTimeout:  defaultReadTimeout,
 			WriteTimeout: defaultWriteTimeout,
 			IdleTimeout:  defaultIdleTimeout,
+			Handler:      r,
 		},
+		router:          r,
+		startTimeout:    defaultStartTimeout,
 		shutdownTimeout: defaultShutdownTimeout,
-		state:           StateStopped,
+		state:           stopped,
 	}
 	for _, option := range options {
 		option(s)
@@ -74,17 +86,8 @@ func New(options ...Option) *server {
 	if s.shutdownHook == nil {
 		s.shutdownHook = defaultShutdownHook
 	}
-	if s.router == nil {
-		s.router = NewRouter()
-	}
 	if s.log == nil {
-		s.log = defaultLogger()
-	}
-	if len(s.httpServer.Addr) == 0 {
-		s.httpServer.Addr = defaultHost + ":" + defaultPort
-	}
-	if s.httpServer.Handler == nil {
-		s.httpServer.Handler = s.router
+		s.log = slog.New(slog.DiscardHandler)
 	}
 
 	return s
@@ -94,84 +97,109 @@ func New(options ...Option) *server {
 //
 // The provided context acts as parent context for
 // all server actions.
-func (s *server) Start(ctx context.Context) error {
+func (s *server) Start(ctx context.Context) (err error) {
+	s.log.InfoContext(ctx, "Server starting.")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	s.shutdownCh = make(chan *shutdownResult)
-	s.errCh = make(chan error)
+	shutdownCh := make(chan *shutdownEvent)
 
-	sr := &shutdownResult{}
+	sr := &shutdownEvent{}
 	defer func() {
-		close(s.shutdownCh)
-		close(s.errCh)
+		s.log.InfoContext(ctx, "Server stopping.", "reason", sr.reason())
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.shutdownTimeout)
+		defer shutdownCancel()
 
-		s.log.Info("Server stopped.", "reason", sr.reason())
+		if shutdownErr := s.shutdown(shutdownCtx); shutdownErr != nil {
+			s.log.ErrorContext(ctx, "Error shutting down server.", "error", shutdownErr)
+			err = errors.Join(err, shutdownErr)
+		}
+
+		s.setState(stopped)
+		s.log.InfoContext(ctx, "Server stopped.")
 	}()
+
+	startCtx, startCancel := context.WithTimeout(ctx, s.startTimeout)
+	defer startCancel()
 
 	go func() {
 		sr.setSignal(s.shutdownHook())
-		if s.State() != StateStopped {
-			s.shutdownCh <- sr
+		startCancel()
+		if s.started() {
+			close(shutdownCh)
 		}
 	}()
 
-	if err := s.startup(ctx); err != nil {
+	if err := s.startup(startCtx, ctx); err != nil {
+		startCancel()
+		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
 	}
 
-	s.setState(StateRunning)
-	s.log.Info("Server started.", "address", s.httpServer.Addr)
+	s.setState(started)
+	s.log.InfoContext(ctx, "Server started.", "address", s.httpServer.Addr)
 
-	<-s.shutdownCh
-	if err := s.shutdown(ctx, sr); err != nil {
-		return err
-	}
-	s.setState(StateStopped)
-	return nil
-}
+	<-shutdownCh
 
-// State of the server.
-func (s *server) State() State {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.state
+	return err
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx context.Context) error {
+func (s *server) startup(ctx, baseCtx context.Context) error {
+	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
+		return err
+	}
+
+	errCh := make(chan error, 1)
 	go func() {
 		if err := s.listenAndServe(ctx); err != nil && err != http.ErrServerClosed {
-			s.errCh <- err
+			errCh <- err
 		}
 	}()
 
 	select {
-	case err := <-s.errCh:
+	case err := <-errCh:
 		return err
-	case <-time.After(50 * time.Millisecond):
+	case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	case <-time.After(httpServerTimeout):
+		return nil
 	}
-
-	return nil
 }
 
 // shutdown runs the shutdown sequence of the server.
-func (s *server) shutdown(ctx context.Context, sr *shutdownResult) error {
-	ctx, cancel := context.WithTimeout(ctx, s.shutdownTimeout)
-	defer cancel()
+func (s *server) shutdown(ctx context.Context) error {
+	ce := &combinedError{}
 
 	s.httpServer.SetKeepAlivesEnabled(false)
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
+		ce.add(err)
+	}
+
+	if err := runFuncs(ctx, nil, false, s.shutdownFuncs...); err != nil {
+		ce.add(err)
+	}
+
+	if len(ce.errs) > 0 {
+		return ce
 	}
 	return nil
 }
 
 // setState sets the state of the server.
-func (s *server) setState(state State) {
+func (s *server) setState(state state) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = state
+}
+
+func (s *server) started() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state == started
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
@@ -205,11 +233,6 @@ func newTLSConfig() *tls.Config {
 	}
 }
 
-// defaultLogger returns a default logger for the server.
-func defaultLogger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
-}
-
 // shutdownSignals returns shutdown signals.
 func shutdownSignals() []os.Signal {
 	return []os.Signal{
@@ -229,18 +252,24 @@ func defaultShutdownHook() os.Signal {
 	return sig
 }
 
-type shutdownResult struct {
+// shutdownEvent represents an event that begins
+// the shutdown sequence.
+type shutdownEvent struct {
 	signal os.Signal
 	mu     sync.Mutex
 }
 
-func (s *shutdownResult) setSignal(signal os.Signal) {
+// setSignal sets the signal to the shutdownEvent.
+func (s *shutdownEvent) setSignal(signal os.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.signal = signal
 }
 
-func (s *shutdownResult) reason() string {
+// reason returns the reason of the shutdown event.
+// If no signal is set it can be assumed an error
+// triggered the shutdown event.
+func (s *shutdownEvent) reason() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -249,4 +278,90 @@ func (s *shutdownResult) reason() string {
 	}
 
 	return "error"
+}
+
+// combinedError is an error containing multiple errors
+// without wrapping them.
+// It outputs them with ';' as a separator.
+type combinedError struct {
+	errs []error
+	mu   sync.Mutex
+}
+
+// add an error to the combinedError.
+func (e *combinedError) add(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.errs = append(e.errs, err)
+}
+
+// Error returns the errors in the contained errors separated
+// with a ';'.
+func (e *combinedError) Error() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.errs) == 0 {
+		return ""
+	}
+
+	out := make([]string, 0, len(e.errs))
+	for _, err := range e.errs {
+		out = append(out, err.Error())
+	}
+
+	return strings.Join(out, "; ")
+}
+
+// runFuncs runs the provided functions in their own go routines for concurrent execition.
+// The function returns after:
+//   - All functions have been run with/without error.
+//   - The context is cancelled.
+//
+// Pass true to returnOnErr to exit directly on first encountered error.
+func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
+	done := make(chan struct{})
+	cerr := &combinedError{}
+	var wg sync.WaitGroup
+
+	fnCtx := ctx
+	if baseCtx != nil {
+		fnCtx = baseCtx
+	}
+
+	errCh := make(chan error, 1)
+	defer close(errCh)
+
+	go func() {
+		defer close(done)
+		for _, fn := range fns {
+			wg.Go(func() {
+				if err := fn(fnCtx); err != nil {
+					if returnOnErr {
+						errCh <- err
+						return
+					}
+					cerr.add(err)
+					return
+				}
+			})
+		}
+		wg.Wait()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
+			cerr.add(err)
+			return cerr
+		}
+	case <-done:
+		if cerr.errs != nil {
+			return cerr
+		}
+	}
+	return nil
 }
