@@ -26,7 +26,7 @@ const (
 	defaultShutdownTimeout = 15 * time.Second
 )
 
-// server ...
+// server is the main orchestrator and server of the application.
 type server struct {
 	log             *slog.Logger
 	shutdownHook    func() os.Signal
@@ -87,6 +87,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 
 	go func() {
 		sr.setSignal(s.shutdownHook())
+		startCancel()
 		if s.started() {
 			close(shutdownCh)
 		}
@@ -164,17 +165,23 @@ func defaultShutdownHook() os.Signal {
 	return sig
 }
 
+// shutdownEvent represents an event that begins
+// the shutdown sequence.
 type shutdownEvent struct {
 	signal os.Signal
 	mu     sync.Mutex
 }
 
+// setSignal sets the signal to the shutdownEvent.
 func (s *shutdownEvent) setSignal(signal os.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.signal = signal
 }
 
+// reason returns the reason of the shutdown event.
+// If no signal is set it can be assumed an error
+// triggered the shutdown event.
 func (s *shutdownEvent) reason() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,11 +193,15 @@ func (s *shutdownEvent) reason() string {
 	return "error"
 }
 
+// combinedError is an error containing multiple errors
+// without wrapping them.
+// It outputs them with ';' as a separator.
 type combinedError struct {
 	errs []error
 	mu   sync.Mutex
 }
 
+// add an error to the combinedError.
 func (e *combinedError) add(err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -198,6 +209,8 @@ func (e *combinedError) add(err error) {
 	e.errs = append(e.errs, err)
 }
 
+// Error returns the errors in the contained errors separated
+// with a ';'.
 func (e *combinedError) Error() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -214,6 +227,12 @@ func (e *combinedError) Error() string {
 	return strings.Join(out, "; ")
 }
 
+// runFuncs runs the provided functions in their own go routines for concurrent execition.
+// The function returns after:
+//   - All functions have been run with/without error.
+//   - The context is cancelled.
+//
+// Pass true to returnOnErr to exit directly on first encountered error.
 func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
 	done := make(chan struct{})
 	cerr := &combinedError{}

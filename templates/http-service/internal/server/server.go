@@ -32,9 +32,12 @@ const (
 	defaultIdleTimeout     = 30 * time.Second
 	defaultStartTimeout    = 15 * time.Second
 	defaultShutdownTimeout = 15 * time.Second
+
+	httpServerTimeout = 50 * time.Millisecond
 )
 
-// server holds an http.Server, a router and it's configured options.
+// server is the main orchestrator and server of the application.
+// It contains an http.Server, a router and it's configured options.
 type server struct {
 	httpServer      *http.Server
 	router          *router
@@ -157,7 +160,12 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 	select {
 	case err := <-errCh:
 		return err
-	case <-time.After(50 * time.Millisecond):
+	case <-ctx.Done():
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	case <-time.After(httpServerTimeout):
 		return nil
 	}
 }
@@ -243,17 +251,23 @@ func defaultShutdownHook() os.Signal {
 	return sig
 }
 
+// shutdownEvent represents an event that begins
+// the shutdown sequence.
 type shutdownEvent struct {
 	signal os.Signal
 	mu     sync.Mutex
 }
 
+// setSignal sets the signal to the shutdownEvent.
 func (s *shutdownEvent) setSignal(signal os.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.signal = signal
 }
 
+// reason returns the reason of the shutdown event.
+// If no signal is set it can be assumed an error
+// triggered the shutdown event.
 func (s *shutdownEvent) reason() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -265,11 +279,15 @@ func (s *shutdownEvent) reason() string {
 	return "error"
 }
 
+// combinedError is an error containing multiple errors
+// without wrapping them.
+// It outputs them with ';' as a separator.
 type combinedError struct {
 	errs []error
 	mu   sync.Mutex
 }
 
+// add an error to the combinedError.
 func (e *combinedError) add(err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -277,6 +295,8 @@ func (e *combinedError) add(err error) {
 	e.errs = append(e.errs, err)
 }
 
+// Error returns the errors in the contained errors separated
+// with a ';'.
 func (e *combinedError) Error() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -293,6 +313,12 @@ func (e *combinedError) Error() string {
 	return strings.Join(out, "; ")
 }
 
+// runFuncs runs the provided functions in their own go routines for concurrent execition.
+// The function returns after:
+//   - All functions have been run with/without error.
+//   - The context is cancelled.
+//
+// Pass true to returnOnErr to exit directly on first encountered error.
 func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
 	done := make(chan struct{})
 	cerr := &combinedError{}

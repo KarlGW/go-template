@@ -1,12 +1,14 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -33,7 +35,8 @@ func TestNew(t *testing.T) {
 					IdleTimeout:  defaultIdleTimeout,
 				},
 				router:          &router{ServeMux: http.NewServeMux()},
-				log:             defaultLogger(),
+				log:             slog.New(slog.DiscardHandler),
+				startTimeout:    defaultStartTimeout,
 				shutdownTimeout: defaultShutdownTimeout,
 				shutdownHook:    defaultShutdownHook,
 			},
@@ -43,7 +46,7 @@ func TestNew(t *testing.T) {
 			input: []Option{
 				WithOptions(Options{
 					Router:       NewRouter(),
-					Logger:       defaultLogger(),
+					Logger:       slog.New(slog.NewJSONHandler(io.Discard, nil)),
 					Host:         "localhost",
 					Port:         8081,
 					ReadTimeout:  10 * time.Second,
@@ -60,93 +63,194 @@ func TestNew(t *testing.T) {
 					IdleTimeout:  15 * time.Second,
 				},
 				router:          &router{ServeMux: http.NewServeMux()},
-				log:             defaultLogger(),
+				log:             slog.New(slog.NewJSONHandler(io.Discard, nil)),
+				startTimeout:    defaultStartTimeout,
 				shutdownTimeout: defaultShutdownTimeout,
 				shutdownHook:    defaultShutdownHook,
 			},
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := New(test.input...)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := New(tt.input...)
 			if got == nil {
-				t.Errorf("New(%v) = nil; want %v", test.input, test.want)
+				t.Errorf("New(%v) = nil; want %v", tt.input, tt.want)
 			}
 
 			if diff := cmp.Diff(
-				test.want,
+				tt.want,
 				got,
 				cmp.AllowUnexported(server{}),
 				cmpopts.IgnoreUnexported(http.Server{}, http.ServeMux{}, slog.Logger{}),
 				cmpopts.IgnoreFields(server{}, "shutdownHook", "mu"),
 			); diff != "" {
-				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", test.input, diff)
+				t.Errorf("New(%v) = unexpected result (-want +got):\n%s\n", tt.input, diff)
 			}
 		})
 	}
 }
 
 func TestServer_Start(t *testing.T) {
-	t.Run("start server", func(t *testing.T) {
-		shutdownCh := make(chan os.Signal)
-		go func() {
-			time.Sleep(time.Millisecond * 200)
-			shutdownCh <- syscall.SIGINT
-		}()
+	tests := []struct {
+		name             string
+		options          []Option
+		components       []any
+		shutdownDur      time.Duration
+		portNotAvailable int
+		wantErr          bool
+		errContains      string
+	}{
+		{
+			name: "start server",
+		},
+		{
+			name: "start server with registering components",
+			components: []any{
+				newComponent(1, 10*time.Millisecond, 10*time.Millisecond, nil, nil),
+				newComponent(2, 10*time.Millisecond, 10*time.Millisecond, nil, nil),
+			},
+		},
+		{
+			name: "error start server: address already in use",
+			options: []Option{
+				WithOptions(Options{
+					Host: "0.0.0.0",
+					Port: 8090,
+				}),
+			},
+			portNotAvailable: 8090,
+			wantErr:          true,
+			errContains:      "address already in use",
+		},
+		{
+			name: "error start server with registering components - startup failed",
+			components: []any{
+				newComponent(1, 10*time.Millisecond, 10*time.Millisecond, errors.New("component 1 startup failed"), nil),
+				newComponent(2, 10*time.Millisecond, 10*time.Millisecond, nil, nil),
+			},
+			wantErr:     true,
+			errContains: "component 1 startup failed",
+		},
+		{
+			name: "error start server with registering components - shutodwn failed",
+			components: []any{
+				newComponent(1, 10*time.Millisecond, 10*time.Millisecond, nil, errors.New("component 1 shutdown failed")),
+				newComponent(2, 10*time.Millisecond, 20*time.Millisecond, nil, errors.New("component 2 shutdown failed")),
+			},
+			wantErr:     true,
+			errContains: "component 1 shutdown failed; component 2 shutdown failed",
+		},
+		{
+			name: "error start server - context cancelled",
+			components: []any{
+				newComponent(1, 15*time.Millisecond, 10*time.Millisecond, nil, nil),
+			},
+			shutdownDur: 10 * time.Millisecond,
+			wantErr:     true,
+			errContains: "context canceled",
+		},
+	}
 
-		var buf bytes.Buffer
-		srv := New(WithLogger(slog.New(slog.NewJSONHandler(&buf, nil))))
-		srv.shutdownHook = func() os.Signal {
-			return <-shutdownCh
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shutdownCh := make(chan os.Signal)
 
-		if gotErr := srv.Start(t.Context()); gotErr != nil {
-			t.Errorf("Start() = unexpected result, got error: %v\n", gotErr)
-		}
-	})
+			shutdownDur := 200 * time.Millisecond
+			if tt.shutdownDur > 0 {
+				shutdownDur = tt.shutdownDur
+			}
+			time.AfterFunc(shutdownDur, func() {
+				shutdownCh <- syscall.SIGINT
+			})
+
+			srv := New(tt.options...)
+			srv.shutdownHook = func() os.Signal {
+				return <-shutdownCh
+			}
+
+			if len(tt.components) > 0 {
+				srv.Register(tt.components...)
+			}
+
+			if tt.portNotAvailable > 0 {
+				go func() {
+					httpServer := &http.Server{
+						Addr: "0.0.0.0:" + strconv.Itoa(tt.portNotAvailable),
+					}
+					time.AfterFunc(100*time.Millisecond, func() {
+						httpServer.Shutdown(t.Context())
+					})
+					httpServer.ListenAndServe()
+				}()
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			gotErr := srv.Start(t.Context())
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Start() failed: %v", gotErr)
+				}
+
+				if tt.errContains != "" && !strings.Contains(gotErr.Error(), tt.errContains) {
+					t.Errorf("Start() error is %q and does not contain %q", gotErr.Error(), tt.errContains)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("Start() succeeded unexpectedly")
+			}
+		})
+	}
 }
 
-func TestServer_Start_Error(t *testing.T) {
-	t.Run("start server", func(t *testing.T) {
-		shutdownCh := make(chan os.Signal)
-		go func() {
-			time.Sleep(time.Millisecond * 300)
-			shutdownCh <- syscall.SIGINT
-		}()
+type component struct {
+	c        int
+	started  bool
+	stopped  bool
+	startErr error
+	stopErr  error
+	startDur time.Duration
+	stopDur  time.Duration
+}
 
-		var buf bytes.Buffer
-		srv := New(
-			WithOptions(Options{
-				Host:   "0.0.0.0",
-				Port:   8090,
-				Logger: slog.New(slog.NewJSONHandler(&buf, nil)),
-			}),
-		)
-		srv.shutdownHook = func() os.Signal {
-			return <-shutdownCh
+func (c *component) Start(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(c.startDur):
+		if c.startErr != nil {
+			return c.startErr
 		}
+		c.started = true
+		return nil
+	}
+}
 
-		go func() {
-			httpServer := &http.Server{
-				Addr: "0.0.0.0:8090",
-			}
-			go func() {
-				time.Sleep(time.Millisecond * 200)
-				httpServer.Shutdown(context.Background())
-			}()
-			httpServer.ListenAndServe()
-		}()
-
-		time.Sleep(time.Millisecond * 10)
-		gotErr := srv.Start(t.Context())
-		if gotErr == nil {
-			t.Errorf("Start() = nil; want error")
+func (c *component) Stop(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(c.stopDur):
+		if c.stopErr != nil {
+			return c.stopErr
 		}
+		c.stopped = true
+		return nil
+	}
+}
 
-		wantErr := errors.New("listen tcp 0.0.0.0:8090: bind: address already in use")
-		if diff := cmp.Diff(wantErr.Error(), gotErr.Error()); diff != "" {
-			t.Errorf("Start() = unexpected result (-want +got):\n%s\n", diff)
-		}
-	})
+func newComponent(
+	c int,
+	startDur, stopDur time.Duration,
+	startErr, stopErr error,
+) *component {
+	return &component{
+		c:        c,
+		startDur: startDur,
+		stopDur:  stopDur,
+		startErr: startErr,
+		stopErr:  stopErr,
+		stopped:  true,
+	}
 }

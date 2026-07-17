@@ -19,9 +19,13 @@ func main() {
 
 func run(ctx context.Context) error {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+
 	srv := server.New(
 		server.WithLogger(log),
 	)
+
+	// Register clients, services, etc. to be handled by the server lifecycle.
+	srv.Register(nil)
 
 	if err := srv.Start(ctx); err != nil {
 		return err

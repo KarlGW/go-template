@@ -25,6 +25,9 @@ func run(ctx context.Context) error {
 		server.WithLogger(log),
 	)
 
+	// Register clients, services, etc. to be handled by the server lifecycle.
+	srv.Register(nil)
+
 	if err := srv.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
