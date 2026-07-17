@@ -173,13 +173,14 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 // shutdown runs the shutdown sequence of the server.
 func (s *server) shutdown(ctx context.Context) error {
 	ce := &combinedError{}
-	if err := runFuncs(ctx, nil, false, s.shutdownFuncs...); err != nil {
-		ce.add(err)
-	}
 
 	s.httpServer.SetKeepAlivesEnabled(false)
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
+		ce.add(err)
+	}
+
+	if err := runFuncs(ctx, nil, false, s.shutdownFuncs...); err != nil {
+		ce.add(err)
 	}
 
 	if len(ce.errs) > 0 {

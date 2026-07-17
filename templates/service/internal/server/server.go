@@ -121,11 +121,12 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 // shutdown runs the shutdown sequence of the server.
 func (s *server) shutdown(ctx context.Context) error {
 	ce := &combinedError{}
+
+	// Stop main service here.
+
 	if err := runFuncs(ctx, nil, false, s.shutdownFuncs...); err != nil {
 		ce.add(err)
 	}
-
-	// Stop main service here.
 
 	if len(ce.errs) > 0 {
 		return ce
