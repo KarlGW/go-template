@@ -9,33 +9,51 @@ import (
 // and services containing lifecycle methods such as start and stop (and various
 // variations).
 type lifecycle struct {
-	startFunc  func(ctx context.Context) error
-	stopFunc   func(ctx context.Context) error
-	shouldStop bool
-	mu         sync.Mutex
+	startFunc func(ctx context.Context) error
+	stopFunc  func(ctx context.Context) error
+	stop      bool
+	mu        sync.Mutex
+}
+
+// setShouldStop sets if the lifecycle should perform
+// stop.
+func (lc *lifecycle) setShouldStop() {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	lc.stop = true
+}
+
+// unsetShouldStop unsets if the lifecycle should perform
+// stop.
+func (lc *lifecycle) unsetShouldStop() {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	lc.stop = false
+}
+
+// shouldStop checks if the lifecycle should stop.
+func (lc *lifecycle) shouldStop() bool {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	return lc.stop
 }
 
 // Start the component inside the lifecycle.
 func (lc *lifecycle) Start(ctx context.Context) error {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
-	if lc.startFunc == nil {
-		return nil
-	}
+	lc.setShouldStop()
 	if err := lc.startFunc(ctx); err != nil {
+		lc.unsetShouldStop()
 		return err
 	}
-	lc.shouldStop = true
 	return nil
 }
 
 // Stop the component in the lifecycle.
 func (lc *lifecycle) Stop(ctx context.Context) error {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
-	if lc.stopFunc == nil || !lc.shouldStop {
+	if !lc.shouldStop() {
 		return nil
 	}
 	return lc.stopFunc(ctx)
@@ -88,7 +106,7 @@ func (s *server) Register(v ...any) {
 		if lc.startFunc != nil {
 			s.startFuncs = append(s.startFuncs, lc.Start)
 		} else {
-			lc.shouldStop = true
+			lc.stop = true
 		}
 
 		// Shutdown methods.
@@ -99,7 +117,7 @@ func (s *server) Register(v ...any) {
 			lc.stopFunc = t.Close
 
 		case interface{ Close() error }:
-			lc.startFunc = func(_ context.Context) error {
+			lc.stopFunc = func(_ context.Context) error {
 				return t.Close()
 			}
 
@@ -109,7 +127,7 @@ func (s *server) Register(v ...any) {
 			lc.stopFunc = t.Stop
 
 		case interface{ Stop() error }:
-			lc.startFunc = func(_ context.Context) error {
+			lc.stopFunc = func(_ context.Context) error {
 				return t.Stop()
 			}
 
@@ -119,7 +137,7 @@ func (s *server) Register(v ...any) {
 			lc.stopFunc = t.Shutdown
 
 		case interface{ Shutdown() error }:
-			lc.startFunc = func(_ context.Context) error {
+			lc.stopFunc = func(_ context.Context) error {
 				return t.Shutdown()
 			}
 		}
