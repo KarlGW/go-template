@@ -127,13 +127,14 @@ func TestServer_Start(t *testing.T) {
 			name: "error start server with registering components - startup failed",
 			components: []any{
 				newComponent(1, 10*time.Millisecond, 10*time.Millisecond, errors.New("component 1 startup failed"), nil),
-				newComponent(2, 10*time.Millisecond, 10*time.Millisecond, nil, nil),
+				newComponent(2, 15*time.Millisecond, 10*time.Millisecond, errors.New("component 2 startup failed"), nil),
+				newComponent(3, 10*time.Millisecond, 10*time.Millisecond, nil, nil),
 			},
 			wantErr:     true,
 			errContains: "component 1 startup failed",
 		},
 		{
-			name: "error start server with registering components - shutodwn failed",
+			name: "error start server with registering components - shutdown failed",
 			components: []any{
 				newComponent(1, 10*time.Millisecond, 10*time.Millisecond, nil, errors.New("component 1 shutdown failed")),
 				newComponent(2, 10*time.Millisecond, 20*time.Millisecond, nil, errors.New("component 2 shutdown failed")),

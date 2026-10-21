@@ -314,54 +314,44 @@ func (e *combinedError) Error() string {
 	return strings.Join(out, "; ")
 }
 
-// runFuncs runs the provided functions in their own go routines for concurrent execition.
+// runFuncs runs the provided functions in their own go routines for concurrent execution.
 // The function returns after:
 //   - All functions have been run with/without error.
 //   - The context is cancelled.
 //
 // Pass true to returnOnErr to exit directly on first encountered error.
 func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
-	done := make(chan struct{})
-	cerr := &combinedError{}
-	var wg sync.WaitGroup
-
 	fnCtx := ctx
 	if baseCtx != nil {
 		fnCtx = baseCtx
 	}
 
-	errCh := make(chan error, 1)
-	defer close(errCh)
+	var fnCancel context.CancelFunc
+	fnCtx, fnCancel = context.WithCancel(fnCtx)
+	defer fnCancel()
 
-	go func() {
-		defer close(done)
-		for _, fn := range fns {
-			wg.Go(func() {
-				if err := fn(fnCtx); err != nil {
-					if returnOnErr {
-						errCh <- err
-						return
-					}
-					cerr.add(err)
-					return
+	ce := &combinedError{}
+	var wg sync.WaitGroup
+
+	for _, fn := range fns {
+		wg.Go(func() {
+			if err := fn(fnCtx); err != nil {
+				ce.add(err)
+				if returnOnErr {
+					fnCancel()
 				}
-			})
-		}
-		wg.Wait()
-	}()
 
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		if err := ctx.Err(); err != nil {
-			cerr.add(err)
-			return cerr
-		}
-	case <-done:
-		if cerr.errs != nil {
-			return cerr
-		}
+			}
+		})
+	}
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		ce.add(err)
+	}
+
+	if len(ce.errs) > 0 {
+		return ce
 	}
 	return nil
 }
