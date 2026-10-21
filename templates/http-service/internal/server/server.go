@@ -42,7 +42,7 @@ type server struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
-	shutdownHook    func() os.Signal
+	shutdownHook    func(context.Context) os.Signal
 	tls             TLSConfig
 	startFuncs      []func(ctx context.Context) error
 	shutdownFuncs   []func(ctx context.Context) error
@@ -107,7 +107,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 	sr := &shutdownEvent{}
 	defer func() {
 		s.log.InfoContext(ctx, "Server stopping.", "reason", sr.reason())
-		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.shutdownTimeout)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 		defer shutdownCancel()
 
 		if shutdownErr := s.shutdown(shutdownCtx); shutdownErr != nil {
@@ -123,14 +123,11 @@ func (s *server) Start(ctx context.Context) (err error) {
 	defer startCancel()
 
 	go func() {
-		sr.setSignal(s.shutdownHook())
-		startCancel()
-		if s.started() {
-			close(shutdownCh)
-		}
+		sr.setSignal(s.shutdownHook(ctx))
+		close(shutdownCh)
 	}()
 
-	if err := s.startup(startCtx, ctx); err != nil {
+	if err := s.startup(startCtx, ctx, shutdownCh); err != nil {
 		startCancel()
 		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
@@ -145,7 +142,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx, baseCtx context.Context) error {
+func (s *server) startup(ctx, baseCtx context.Context, shutdownCh <-chan *shutdownEvent) error {
 	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
 		return err
 	}
@@ -164,6 +161,8 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		return nil
+	case <-shutdownCh:
 		return nil
 	case <-time.After(httpServerTimeout):
 		return nil
@@ -194,12 +193,6 @@ func (s *server) setState(state state) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = state
-}
-
-func (s *server) started() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.state == started
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
@@ -244,12 +237,17 @@ func shutdownSignals() []os.Signal {
 
 // defaultShutdownHook is the default shutdown hook for the server,
 // makes use of the default shutdown signals.
-func defaultShutdownHook() os.Signal {
+func defaultShutdownHook(ctx context.Context) os.Signal {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, shutdownSignals()...)
-	sig := <-shutdown
-	signal.Reset(shutdownSignals()...)
-	return sig
+	defer signal.Reset(shutdownSignals()...)
+
+	select {
+	case sig := <-shutdown:
+		return sig
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 // shutdownEvent represents an event that begins
@@ -314,54 +312,44 @@ func (e *combinedError) Error() string {
 	return strings.Join(out, "; ")
 }
 
-// runFuncs runs the provided functions in their own go routines for concurrent execition.
+// runFuncs runs the provided functions in their own go routines for concurrent execution.
 // The function returns after:
 //   - All functions have been run with/without error.
 //   - The context is cancelled.
 //
 // Pass true to returnOnErr to exit directly on first encountered error.
 func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
-	done := make(chan struct{})
-	cerr := &combinedError{}
-	var wg sync.WaitGroup
-
 	fnCtx := ctx
 	if baseCtx != nil {
 		fnCtx = baseCtx
 	}
 
-	errCh := make(chan error, 1)
-	defer close(errCh)
+	var fnCancel context.CancelFunc
+	fnCtx, fnCancel = context.WithCancel(fnCtx)
+	defer fnCancel()
 
-	go func() {
-		defer close(done)
-		for _, fn := range fns {
-			wg.Go(func() {
-				if err := fn(fnCtx); err != nil {
-					if returnOnErr {
-						errCh <- err
-						return
-					}
-					cerr.add(err)
-					return
+	ce := &combinedError{}
+	var wg sync.WaitGroup
+
+	for _, fn := range fns {
+		wg.Go(func() {
+			if err := fn(fnCtx); err != nil {
+				ce.add(err)
+				if returnOnErr {
+					fnCancel()
 				}
-			})
-		}
-		wg.Wait()
-	}()
 
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		if err := ctx.Err(); err != nil {
-			cerr.add(err)
-			return cerr
-		}
-	case <-done:
-		if cerr.errs != nil {
-			return cerr
-		}
+			}
+		})
+	}
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		ce.add(err)
+	}
+
+	if len(ce.errs) > 0 {
+		return ce
 	}
 	return nil
 }
