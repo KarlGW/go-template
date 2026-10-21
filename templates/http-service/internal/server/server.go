@@ -125,9 +125,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 	go func() {
 		sr.setSignal(s.shutdownHook())
 		startCancel()
-		if s.started() {
-			close(shutdownCh)
-		}
+		close(shutdownCh)
 	}()
 
 	if err := s.startup(startCtx, ctx); err != nil {
