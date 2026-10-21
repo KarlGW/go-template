@@ -70,7 +70,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 	sr := &shutdownEvent{}
 	defer func() {
 		s.log.InfoContext(ctx, "Server stopping.", "reason", sr.reason())
-		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.shutdownTimeout)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 		defer shutdownCancel()
 
 		if shutdownErr := s.shutdown(shutdownCtx); shutdownErr != nil {
