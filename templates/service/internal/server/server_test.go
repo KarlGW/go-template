@@ -103,13 +103,11 @@ func TestServer_Start(t *testing.T) {
 			errContains: "component 1 shutdown failed; component 2 shutdown failed",
 		},
 		{
-			name: "error start server - context cancelled",
+			name: "signal during startup - graceful shutdown",
 			components: []any{
 				newComponent(1, 15*time.Millisecond, 10*time.Millisecond, nil, nil),
 			},
 			shutdownDur: 10 * time.Millisecond,
-			wantErr:     true,
-			errContains: "context canceled",
 		},
 	}
 
@@ -199,6 +197,5 @@ func newComponent(
 		stopDur:  stopDur,
 		startErr: startErr,
 		stopErr:  stopErr,
-		stopped:  true,
 	}
 }

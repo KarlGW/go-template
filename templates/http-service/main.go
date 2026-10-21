@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,7 +27,7 @@ func run(ctx context.Context) error {
 	// Register clients, services, etc. to be handled by the server lifecycle.
 	srv.Register(nil)
 
-	if err := srv.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if err := srv.Start(ctx); err != nil {
 		return err
 	}
 	return nil

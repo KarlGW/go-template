@@ -124,11 +124,10 @@ func (s *server) Start(ctx context.Context) (err error) {
 
 	go func() {
 		sr.setSignal(s.shutdownHook())
-		startCancel()
 		close(shutdownCh)
 	}()
 
-	if err := s.startup(startCtx, ctx); err != nil {
+	if err := s.startup(startCtx, ctx, shutdownCh); err != nil {
 		startCancel()
 		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
@@ -143,7 +142,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx, baseCtx context.Context) error {
+func (s *server) startup(ctx, baseCtx context.Context, shutdownCh <-chan *shutdownEvent) error {
 	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
 		return err
 	}
@@ -162,6 +161,8 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		return nil
+	case <-shutdownCh:
 		return nil
 	case <-time.After(httpServerTimeout):
 		return nil
@@ -192,12 +193,6 @@ func (s *server) setState(state state) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = state
-}
-
-func (s *server) started() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.state == started
 }
 
 // listenAndServe wraps around http.Server ListenAndServe and
