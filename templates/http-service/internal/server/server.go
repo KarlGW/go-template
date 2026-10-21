@@ -42,7 +42,7 @@ type server struct {
 	httpServer      *http.Server
 	router          *router
 	log             *slog.Logger
-	shutdownHook    func() os.Signal
+	shutdownHook    func(context.Context) os.Signal
 	tls             TLSConfig
 	startFuncs      []func(ctx context.Context) error
 	shutdownFuncs   []func(ctx context.Context) error
@@ -123,7 +123,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 	defer startCancel()
 
 	go func() {
-		sr.setSignal(s.shutdownHook())
+		sr.setSignal(s.shutdownHook(ctx))
 		close(shutdownCh)
 	}()
 
@@ -237,12 +237,17 @@ func shutdownSignals() []os.Signal {
 
 // defaultShutdownHook is the default shutdown hook for the server,
 // makes use of the default shutdown signals.
-func defaultShutdownHook() os.Signal {
+func defaultShutdownHook(ctx context.Context) os.Signal {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, shutdownSignals()...)
-	sig := <-shutdown
-	signal.Reset(shutdownSignals()...)
-	return sig
+	defer signal.Reset(shutdownSignals()...)
+
+	select {
+	case sig := <-shutdown:
+		return sig
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 // shutdownEvent represents an event that begins

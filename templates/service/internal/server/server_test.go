@@ -124,7 +124,7 @@ func TestServer_Start(t *testing.T) {
 			})
 
 			srv := New()
-			srv.shutdownHook = func() os.Signal {
+			srv.shutdownHook = func(_ context.Context) os.Signal {
 				return <-shutdownCh
 			}
 
