@@ -172,7 +172,7 @@ func (s *server) shutdown(ctx context.Context) error {
 		ce.add(err)
 	}
 
-	if len(ce.errs) > 0 {
+	if ce.len() > 0 {
 		return ce
 	}
 	return nil
@@ -284,6 +284,13 @@ func (e *combinedError) add(err error) {
 	e.errs = append(e.errs, err)
 }
 
+// len returns the amount of errors.
+func (e *combinedError) len() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.errs)
+}
+
 // Error returns the errors in the contained errors separated
 // with a ';'.
 func (e *combinedError) Error() string {
@@ -328,17 +335,28 @@ func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx co
 				if returnOnErr {
 					fnCancel()
 				}
-
 			}
 		})
 	}
-	wg.Wait()
 
-	if err := ctx.Err(); err != nil {
-		ce.add(err)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		fnCancel()
+		if err := ctx.Err(); err != nil {
+			ce.add(err)
+			return ce
+		}
+		return ce
+	case <-done:
 	}
 
-	if len(ce.errs) > 0 {
+	if ce.len() > 0 {
 		return ce
 	}
 	return nil

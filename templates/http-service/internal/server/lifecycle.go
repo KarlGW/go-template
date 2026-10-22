@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -69,14 +68,16 @@ func (lc *lifecycle) Stop(ctx context.Context) error {
 //   - Start(context.Context) error or Start() error.
 //   - Run(context.Context) error or Run() error.
 //
+// Start functions receive the server's lifetime context which is also the
+// startup deadline, if they need their own deadline, wrap the component
+// Start/Run method.
+//
 // To be registered for shutdown sequence the provided component needs
 // one of the following methods:
 //
 //   - Close(context.Context) error or Close() error.
 //   - Stop(context.Context) error or Close() error.
 //   - Shutdown(context.Context error or Shutdown() error.
-//
-// It does need to implement them all.
 func (s *server) Register(v ...any) {
 	for _, _v := range v {
 		lc := lifecycle{}
@@ -146,19 +147,5 @@ func (s *server) Register(v ...any) {
 		if lc.stopFunc != nil {
 			s.shutdownFuncs = append(s.shutdownFuncs, lc.Stop)
 		}
-	}
-}
-
-// Named wraps a component in a name to increase observability in which
-// component that failed.
-func Named(
-	name string,
-	fn func(ctx context.Context) error,
-) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if err := fn(ctx); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
 	}
 }
