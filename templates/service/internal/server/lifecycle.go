@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -145,5 +146,19 @@ func (s *server) Register(v ...any) {
 		if lc.stopFunc != nil {
 			s.shutdownFuncs = append(s.shutdownFuncs, lc.Stop)
 		}
+	}
+}
+
+// Named wraps a component in a name to increase observability in which
+// component that failed.
+func Named(
+	name string,
+	fn func(ctx context.Context) error,
+) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if err := fn(ctx); err != nil {
+			return fmt.Errorf("%s: %w", err)
+		}
+		return nil
 	}
 }

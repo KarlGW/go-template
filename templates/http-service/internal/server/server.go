@@ -32,8 +32,6 @@ const (
 	defaultIdleTimeout     = 30 * time.Second
 	defaultStartTimeout    = 15 * time.Second
 	defaultShutdownTimeout = 15 * time.Second
-
-	httpServerTimeout = 50 * time.Millisecond
 )
 
 // server is the main orchestrator and server of the application.
@@ -127,7 +125,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 		close(shutdownCh)
 	}()
 
-	if err := s.startup(startCtx, ctx, shutdownCh); err != nil {
+	if err := s.startup(startCtx, ctx); err != nil {
 		startCancel()
 		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
@@ -142,31 +140,23 @@ func (s *server) Start(ctx context.Context) (err error) {
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx, baseCtx context.Context, shutdownCh <-chan *shutdownEvent) error {
+func (s *server) startup(ctx, baseCtx context.Context) error {
 	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
 		return err
 	}
 
-	errCh := make(chan error, 1)
+	ln, err := net.Listen("tcp", s.httpServer.Addr)
+	if err != nil {
+		return err
+	}
+
 	go func() {
-		if err := s.listenAndServe(ctx); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+		if err := s.serve(ctx, ln); err != nil && err != http.ErrServerClosed {
+			s.log.ErrorContext(ctx, "Error in HTTP server.", "error", err)
 		}
 	}()
 
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return nil
-	case <-shutdownCh:
-		return nil
-	case <-time.After(httpServerTimeout):
-		return nil
-	}
+	return nil
 }
 
 // shutdown runs the shutdown sequence of the server.
@@ -195,18 +185,18 @@ func (s *server) setState(state state) {
 	s.state = state
 }
 
-// listenAndServe wraps around http.Server ListenAndServe and
-// ListenAndServeTLS depending on TLS configuration.
-func (s *server) listenAndServe(ctx context.Context) error {
+// serve wraps around http.Server Serve and
+// ServeTLS depending on TLS configuration.
+func (s *server) serve(ctx context.Context, ln net.Listener) error {
 	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
 	}
 
 	if !s.tls.isEmpty() {
 		s.httpServer.TLSConfig = newTLSConfig()
-		return s.httpServer.ListenAndServeTLS(s.tls.Certificate, s.tls.Key)
+		return s.httpServer.ServeTLS(ln, s.tls.Certificate, s.tls.Key)
 	}
-	return s.httpServer.ListenAndServe()
+	return s.httpServer.Serve(ln)
 }
 
 // newTLSConfig returns a new tls.Config.

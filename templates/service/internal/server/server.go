@@ -90,7 +90,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 		close(shutdownCh)
 	}()
 
-	if err := s.startup(startCtx, ctx, shutdownCh); err != nil {
+	if err := s.startup(startCtx, ctx); err != nil {
 		startCancel()
 		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
@@ -105,7 +105,7 @@ func (s *server) Start(ctx context.Context) (err error) {
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx, baseCtx context.Context, shutdownCh <-chan *shutdownEvent) error {
+func (s *server) startup(ctx, baseCtx context.Context) error {
 	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
 		return err
 	}
