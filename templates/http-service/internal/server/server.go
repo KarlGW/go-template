@@ -151,7 +151,7 @@ func (s *server) startup(ctx, baseCtx context.Context) error {
 	}
 
 	go func() {
-		if err := s.listenAndServe(ctx, ln); err != nil && err != http.ErrServerClosed {
+		if err := s.serve(ctx, ln); err != nil && err != http.ErrServerClosed {
 			s.log.ErrorContext(ctx, "Error in HTTP server.", "error", err)
 		}
 	}()
@@ -185,9 +185,9 @@ func (s *server) setState(state state) {
 	s.state = state
 }
 
-// listenAndServe wraps around http.Server ListenAndServe and
-// ListenAndServeTLS depending on TLS configuration.
-func (s *server) listenAndServe(ctx context.Context, ln net.Listener) error {
+// serve wraps around http.Server Serve and
+// ServeTLS depending on TLS configuration.
+func (s *server) serve(ctx context.Context, ln net.Listener) error {
 	s.httpServer.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
 	}
