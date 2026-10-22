@@ -350,9 +350,7 @@ func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx co
 		fnCancel()
 		if err := ctx.Err(); err != nil {
 			ce.add(err)
-			return ce
 		}
-		return ce
 	case <-done:
 	}
 
