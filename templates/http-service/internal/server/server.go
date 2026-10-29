@@ -312,7 +312,7 @@ func (e *combinedError) Error() string {
 // runFuncs runs the provided functions in their own go routines for concurrent execution.
 //
 // The functions runs with a context derived from ctx, or runCtx if ctx is nil.
-// runRuncs returns when runCtx is done or all functions have returned, and cancels
+// runFuncs returns when runCtx is done or all functions have returned, and cancels
 // the functions in both cases.
 //
 // Pass true to returnOnErr to exit directly on first encountered error.
