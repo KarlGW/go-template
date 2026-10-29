@@ -82,15 +82,15 @@ func (s *server) Start(ctx context.Context) (err error) {
 		s.log.InfoContext(ctx, "Server stopped.")
 	}()
 
-	startCtx, startCancel := context.WithTimeout(ctx, s.startTimeout)
-	defer startCancel()
-
 	go func() {
 		sr.setSignal(s.shutdownHook(ctx))
 		close(shutdownCh)
 	}()
 
-	if err := s.startup(startCtx, ctx); err != nil {
+	startCtx, startCancel := context.WithTimeout(ctx, s.startTimeout)
+	defer startCancel()
+
+	if err := s.startup(ctx, startCtx); err != nil {
 		startCancel()
 		s.log.ErrorContext(ctx, "Error starting server.", "error", err)
 		return err
@@ -105,8 +105,8 @@ func (s *server) Start(ctx context.Context) (err error) {
 }
 
 // startup runs the startup sequence of the server.
-func (s *server) startup(ctx, baseCtx context.Context) error {
-	if err := runFuncs(ctx, baseCtx, true, s.startFuncs...); err != nil {
+func (s *server) startup(ctx, startCtx context.Context) error {
+	if err := runFuncs(ctx, startCtx, true, s.startFuncs...); err != nil {
 		return err
 	}
 
@@ -121,7 +121,7 @@ func (s *server) shutdown(ctx context.Context) error {
 
 	// Stop main service here.
 
-	if err := runFuncs(ctx, nil, false, s.shutdownFuncs...); err != nil {
+	if err := runFuncs(nil, ctx, false, s.shutdownFuncs...); err != nil {
 		ce.add(err)
 	}
 
@@ -232,15 +232,16 @@ func (e *combinedError) Error() string {
 }
 
 // runFuncs runs the provided functions in their own go routines for concurrent execution.
-// The function returns after:
-//   - All functions have been run with/without error.
-//   - The context is cancelled.
+//
+// The functions runs with a context derived from ctx, or runCtx if ctx is nil.
+// runRuncs returns when runCtx is done or all functions have returned, and cancels
+// the functions in both cases.
 //
 // Pass true to returnOnErr to exit directly on first encountered error.
-func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
-	fnCtx := ctx
-	if baseCtx != nil {
-		fnCtx = baseCtx
+func runFuncs(ctx, runCtx context.Context, returnOnErr bool, fns ...func(ctx context.Context) error) error {
+	fnCtx := runCtx
+	if ctx != nil {
+		fnCtx = ctx
 	}
 
 	var fnCancel context.CancelFunc
@@ -268,9 +269,9 @@ func runFuncs(ctx, baseCtx context.Context, returnOnErr bool, fns ...func(ctx co
 	}()
 
 	select {
-	case <-ctx.Done():
+	case <-runCtx.Done():
 		fnCancel()
-		if err := ctx.Err(); err != nil {
+		if err := runCtx.Err(); err != nil {
 			ce.add(err)
 		}
 	case <-done:
