@@ -324,7 +324,6 @@ func runFuncs(ctx, runCtx context.Context, returnOnErr bool, fns ...func(ctx con
 
 	var fnCancel context.CancelFunc
 	fnCtx, fnCancel = context.WithCancel(fnCtx)
-	defer fnCancel()
 
 	ce := &combinedError{}
 	var wg sync.WaitGroup
